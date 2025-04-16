@@ -1,0 +1,178 @@
+<UserControl x:Class="DataGridNamespace.Admin.DashboardView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:icon="http://metro.mahapps.com/winfx/xaml/iconpacks"
+             Background="Transparent">
+
+    <UserControl.Resources>
+        <!-- Card Style -->
+        <Style x:Key="CardStyle" TargetType="Border">
+            <Setter Property="Background" Value="#FFFFFF"/>
+            <Setter Property="CornerRadius" Value="10"/>
+            <Setter Property="Margin" Value="10"/>
+            <Setter Property="Padding" Value="15"/>
+            <Setter Property="Effect">
+                <Setter.Value>
+                    <DropShadowEffect BlurRadius="10" ShadowDepth="1" Opacity="0.2"/>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <!-- Stat Number Style -->
+        <Style x:Key="StatNumberStyle" TargetType="TextBlock">
+            <Setter Property="FontSize" Value="28"/>
+            <Setter Property="FontWeight" Value="Bold"/>
+            <Setter Property="Foreground" Value="#008080"/>
+            <Setter Property="Margin" Value="0,5"/>
+        </Style>
+
+        <!-- Stat Label Style -->
+        <Style x:Key="StatLabelStyle" TargetType="TextBlock">
+            <Setter Property="FontSize" Value="14"/>
+            <Setter Property="Foreground" Value="#666666"/>
+        </Style>
+
+        <!-- Chart Title Style -->
+        <Style x:Key="ChartTitleStyle" TargetType="TextBlock">
+            <Setter Property="FontSize" Value="16"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="Margin" Value="0,0,0,10"/>
+        </Style>
+    </UserControl.Resources>
+
+    <ScrollViewer>
+        <Grid Margin="20">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="*"/>
+            </Grid.RowDefinitions>
+
+            <!-- Welcome Section -->
+            <StackPanel Grid.Row="0" Margin="0,0,0,20">
+                <TextBlock Text="Welcome Back!" FontSize="24" FontWeight="Bold"/>
+                <TextBlock Text="Here's what's happening with your thesis management system." 
+                         Foreground="#666666" Margin="0,5"/>
+            </StackPanel>
+
+            <!-- Statistics Cards -->
+            <WrapPanel Grid.Row="1" Margin="0,0,0,20">
+                <!-- Total Users Card -->
+                <Border Style="{StaticResource CardStyle}" Width="250">
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        <StackPanel Grid.Column="0">
+                            <TextBlock Text="Total Users" Style="{StaticResource StatLabelStyle}"/>
+                            <TextBlock x:Name="TotalUsersText" Text="0" Style="{StaticResource StatNumberStyle}"/>
+                            <TextBlock Text="Active members" Foreground="#666666" FontSize="12"/>
+                        </StackPanel>
+                        <Border Grid.Column="1" Background="#E6F3F3" CornerRadius="8" Padding="10">
+                            <icon:PackIconMaterial Kind="AccountGroup" Width="30" Height="30" Foreground="#008080"/>
+                        </Border>
+                    </Grid>
+                </Border>
+
+                <!-- Total Theses Card -->
+                <Border Style="{StaticResource CardStyle}" Width="250">
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        <StackPanel Grid.Column="0">
+                            <TextBlock Text="Total Theses" Style="{StaticResource StatLabelStyle}"/>
+                            <TextBlock x:Name="TotalThesesText" Text="0" Style="{StaticResource StatNumberStyle}"/>
+                            <TextBlock Text="Published works" Foreground="#666666" FontSize="12"/>
+                        </StackPanel>
+                        <Border Grid.Column="1" Background="#E6F3F3" CornerRadius="8" Padding="10">
+                            <icon:PackIconMaterial Kind="BookOpenVariant" Width="30" Height="30" Foreground="#008080"/>
+                        </Border>
+                    </Grid>
+                </Border>
+
+                <!-- Active Projects Card -->
+                <Border Style="{StaticResource CardStyle}" Width="250">
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        <StackPanel Grid.Column="0">
+                            <TextBlock Text="Active Projects" Style="{StaticResource StatLabelStyle}"/>
+                            <TextBlock x:Name="ActiveProjectsText" Text="0" Style="{StaticResource StatNumberStyle}"/>
+                            <TextBlock Text="In progress" Foreground="#666666" FontSize="12"/>
+                        </StackPanel>
+                        <Border Grid.Column="1" Background="#E6F3F3" CornerRadius="8" Padding="10">
+                            <icon:PackIconMaterial Kind="ChartTimelineVariant" Width="30" Height="30" Foreground="#008080"/>
+                        </Border>
+                    </Grid>
+                </Border>
+            </WrapPanel>
+
+            <!-- Charts and Tables Section -->
+            <Grid Grid.Row="2">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="*"/>
+                </Grid.ColumnDefinitions>
+
+                <!-- Recent Theses -->
+                <Border Grid.Column="0" Style="{StaticResource CardStyle}" Margin="0,0,10,0">
+                    <DockPanel>
+                        <TextBlock Text="Recent Theses" Style="{StaticResource ChartTitleStyle}" DockPanel.Dock="Top"/>
+                        <ListView x:Name="RecentThesesList" BorderThickness="0">
+                            <ListView.ItemTemplate>
+                                <DataTemplate>
+                                    <Grid Margin="0,5">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*"/>
+                                            <ColumnDefinition Width="Auto"/>
+                                        </Grid.ColumnDefinitions>
+                                        <StackPanel Grid.Column="0">
+                                            <TextBlock Text="{Binding Title}" FontWeight="SemiBold"/>
+                                            <TextBlock Text="{Binding Author}" Foreground="#666666" FontSize="12"/>
+                                        </StackPanel>
+                                        <TextBlock Grid.Column="1" Text="{Binding Date}" Foreground="#666666" FontSize="12"/>
+                                    </Grid>
+                                </DataTemplate>
+                            </ListView.ItemTemplate>
+                        </ListView>
+                    </DockPanel>
+                </Border>
+
+                <!-- Recent Activities -->
+                <Border Grid.Column="1" Style="{StaticResource CardStyle}" Margin="10,0,0,0">
+                    <DockPanel>
+                        <TextBlock Text="Recent Activities" Style="{StaticResource ChartTitleStyle}" DockPanel.Dock="Top"/>
+                        <ListView x:Name="RecentActivitiesList" BorderThickness="0">
+                            <ListView.ItemTemplate>
+                                <DataTemplate>
+                                    <Grid Margin="0,5">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="Auto"/>
+                                            <ColumnDefinition Width="*"/>
+                                            <ColumnDefinition Width="Auto"/>
+                                        </Grid.ColumnDefinitions>
+                                        <Border Grid.Column="0" Width="40" Height="40" CornerRadius="20" 
+                                                Background="#E6F3F3" Margin="0,0,10,0">
+                                            <icon:PackIconMaterial Kind="{Binding Icon}" Width="20" Height="20" 
+                                                                  Foreground="#008080"/>
+                                        </Border>
+                                        <StackPanel Grid.Column="1">
+                                            <TextBlock Text="{Binding Action}" FontWeight="SemiBold"/>
+                                            <TextBlock Text="{Binding Description}" Foreground="#666666" FontSize="12"/>
+                                        </StackPanel>
+                                        <TextBlock Grid.Column="2" Text="{Binding Time}" Foreground="#666666" FontSize="12"/>
+                                    </Grid>
+                                </DataTemplate>
+                            </ListView.ItemTemplate>
+                        </ListView>
+                    </DockPanel>
+                </Border>
+            </Grid>
+        </Grid>
+    </ScrollViewer>
+</UserControl>

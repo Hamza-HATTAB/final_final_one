@@ -1,23 +1,32 @@
 using System;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Input;
 using System.Diagnostics;
 using MySql.Data.MySqlClient;
 using System.IO;
 using ThesesModels;
+using DataGridNamespace.Services;
+using System.Threading.Tasks;
 
 namespace DataGridNamespace.Admin
 {
     public partial class AddThesisWindow : Window
     {
+        private readonly CloudStorageService _cloudStorageService;
+        
         public AddThesisWindow()
         {
             InitializeComponent();
+            
             // Set default date to current date
             YearDatePicker.SelectedDate = DateTime.Now;
             
             // Set default type to first item
             TypeComboBox.SelectedIndex = 0;
+            
+            // Initialize cloud storage service
+            _cloudStorageService = new CloudStorageService();
         }
 
         private void BrowseButton_Click(object sender, RoutedEventArgs e)
@@ -34,7 +43,7 @@ namespace DataGridNamespace.Admin
             }
         }
 
-        private void SaveButton_Click(object sender, RoutedEventArgs e)
+        private async void SaveButton_Click(object sender, RoutedEventArgs e)
         {
             try
             {
@@ -98,22 +107,42 @@ namespace DataGridNamespace.Admin
                 // Get current user ID from session
                 int currentUserId = DataGridNamespace.Session.CurrentUserId;
 
-                // Process file path - store only relative path in DB
+                // Show "Please wait" message
+                SaveButton.IsEnabled = false;
+                CancelButton.IsEnabled = false;
+                
+                this.Cursor = Cursors.Wait;
+                
+                // Upload file to Cloud Storage
                 string fileName = Path.GetFileName(FilePathTextBox.Text);
-                string relativePath = "pdfs/" + fileName;
-
-                // Create target directory if it doesn't exist
-                string targetDirectory = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "pdfs");
-                if (!Directory.Exists(targetDirectory))
+                string objectName = $"theses/{Guid.NewGuid()}/{fileName}";
+                
+                string uploadedObjectName;
+                try
                 {
-                    Directory.CreateDirectory(targetDirectory);
+                    uploadedObjectName = await _cloudStorageService.UploadFileViaSignedUrl(FilePathTextBox.Text, objectName);
+                    
+                    if (uploadedObjectName == null)
+                    {
+                        MessageBox.Show("Failed to upload file to cloud storage.", "Upload Error", MessageBoxButton.OK, MessageBoxImage.Error);
+                        
+                        SaveButton.IsEnabled = true;
+                        CancelButton.IsEnabled = true;
+                        this.Cursor = Cursors.Arrow;
+                        
+                        return;
+                    }
                 }
-
-                // Copy file to target directory if it doesn't already exist there
-                string targetPath = Path.Combine(targetDirectory, fileName);
-                if (FilePathTextBox.Text != targetPath && !File.Exists(targetPath))
+                catch (Exception ex)
                 {
-                    File.Copy(FilePathTextBox.Text, targetPath);
+                    Debug.WriteLine($"Error uploading file: {ex.Message}");
+                    MessageBox.Show($"Error uploading file: {ex.Message}", "Upload Error", MessageBoxButton.OK, MessageBoxImage.Error);
+                    
+                    SaveButton.IsEnabled = true;
+                    CancelButton.IsEnabled = true;
+                    this.Cursor = Cursors.Arrow;
+                    
+                    return;
                 }
 
                 // Get type from ComboBox
@@ -121,9 +150,9 @@ namespace DataGridNamespace.Admin
                 TypeThese type = (TypeThese)Enum.Parse(typeof(TypeThese), typeStr);
 
                 // Save to database
-                string connectionString = DataGrid.Models.DatabaseConnection.GetConnectionString();
+                string connectionString = AppConfig.CloudSqlConnectionString;
                 string query = @"INSERT INTO theses (titre, auteur, speciality, Type, mots_cles, annee, Resume, fichier, user_id) 
-                               VALUES (@titre, @auteur, @specialite, @type, @motsCles, @annee, @resume, @fichier, @userId)";
+                               VALUES (@titre, @auteur, @speciality, @type, @motsCles, @annee, @resume, @fichier, @userId)";
 
                 using (MySqlConnection conn = new MySqlConnection(connectionString))
                 {
@@ -132,18 +161,20 @@ namespace DataGridNamespace.Admin
                     {
                         cmd.Parameters.AddWithValue("@titre", TitleTextBox.Text);
                         cmd.Parameters.AddWithValue("@auteur", AuthorTextBox.Text);
-                        cmd.Parameters.AddWithValue("@specialite", SpecialtyTextBox.Text);
+                        cmd.Parameters.AddWithValue("@speciality", SpecialtyTextBox.Text);
                         cmd.Parameters.AddWithValue("@type", type.ToString());
                         cmd.Parameters.AddWithValue("@motsCles", KeywordsTextBox.Text);
                         cmd.Parameters.AddWithValue("@annee", YearDatePicker.SelectedDate.Value);
                         cmd.Parameters.AddWithValue("@resume", AbstractTextBox.Text);
-                        cmd.Parameters.AddWithValue("@fichier", relativePath);
+                        cmd.Parameters.AddWithValue("@fichier", uploadedObjectName);
                         cmd.Parameters.AddWithValue("@userId", currentUserId);
 
                         cmd.ExecuteNonQuery();
                     }
                 }
 
+                MessageBox.Show("Thesis added successfully!", "Success", MessageBoxButton.OK, MessageBoxImage.Information);
+                
                 // Close the window with success result
                 DialogResult = true;
                 Close();
@@ -152,6 +183,10 @@ namespace DataGridNamespace.Admin
             {
                 Debug.WriteLine($"Error adding thesis: {ex.Message}");
                 MessageBox.Show($"Error adding thesis: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+                
+                SaveButton.IsEnabled = true;
+                CancelButton.IsEnabled = true;
+                this.Cursor = Cursors.Arrow;
             }
         }
 

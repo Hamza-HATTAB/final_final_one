@@ -10,6 +10,7 @@ using MySql.Data.MySqlClient;
 using ThesesModels;
 using FavorisModels;
 using System.Windows.Media;
+using System.Windows.Input;
 
 namespace DataGridNamespace.Admin
 {
@@ -63,7 +64,7 @@ namespace DataGridNamespace.Admin
                 {
                     // Fixed SQL query with correct column names and ascending order
                     string query = @"SELECT f.id, f.user_id, f.these_id, 
-                                   t.id as ThesisId, t.titre, t.auteur, t.speciality as Specialite, t.Type, 
+                                   t.id as ThesisId, t.titre, t.auteur, t.speciality, t.Type, 
                                    t.mots_cles as MotsCles, t.annee, t.Resume, t.fichier, t.user_id as ThesisUserId
                                FROM favoris f
                                    INNER JOIN theses t ON f.these_id = t.id
@@ -88,7 +89,7 @@ namespace DataGridNamespace.Admin
                                     Id = reader.GetInt32("ThesisId"),
                                             Titre = reader.IsDBNull(reader.GetOrdinal("titre")) ? "" : reader.GetString("titre"),
                                             Auteur = reader.IsDBNull(reader.GetOrdinal("auteur")) ? "" : reader.GetString("auteur"),
-                                            Specialite = reader.IsDBNull(reader.GetOrdinal("Specialite")) ? "" : reader.GetString("Specialite"),
+                                            Speciality = reader.IsDBNull(reader.GetOrdinal("speciality")) ? "" : reader.GetString("speciality"),
                                     Type = (TypeThese)Enum.Parse(typeof(TypeThese), reader.GetString("Type")),
                                             MotsCles = reader.IsDBNull(reader.GetOrdinal("MotsCles")) ? "" : reader.GetString("MotsCles"),
                                             Annee = reader.GetDateTime("annee"),
@@ -524,7 +525,7 @@ namespace DataGridNamespace.Admin
                     AddDetailRow(contentGrid, 2, "Author:", favorite.These.Auteur ?? "N/A");
 
                     // Specialty
-                    AddDetailRow(contentGrid, 4, "Specialty:", favorite.These.Specialite ?? "N/A");
+                    AddDetailRow(contentGrid, 4, "Specialty:", favorite.These.Speciality ?? "N/A");
 
                     // Type
                     AddDetailRow(contentGrid, 6, "Type:", favorite.These.Type.ToString());
@@ -666,7 +667,7 @@ namespace DataGridNamespace.Admin
             }
         }
 
-        private void ViewPdfButton_Click(object sender, RoutedEventArgs e)
+        private async void ViewPdfButton_Click(object sender, RoutedEventArgs e)
         {
             if (sender is Button button && button.Tag is Favoris favorite && favorite.These != null)
             {
@@ -678,27 +679,35 @@ namespace DataGridNamespace.Admin
                         return;
                     }
 
-                    // Ensure the file exists before trying to open it
-                    if (!System.IO.File.Exists(favorite.These.Fichier))
+                    this.Cursor = Cursors.Wait;
+
+                    // Use CloudStorageService to get a signed URL for the file
+                    var cloudStorageService = new DataGridNamespace.Services.CloudStorageService();
+                    string signedUrl = await cloudStorageService.GetSignedReadUrl(favorite.These.Fichier);
+                    
+                    if (string.IsNullOrEmpty(signedUrl))
                     {
-                        MessageBox.Show($"PDF file not found at: {favorite.These.Fichier}", "File Not Found", MessageBoxButton.OK, MessageBoxImage.Warning);
+                        MessageBox.Show("Could not generate a download URL for this file.", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+                        this.Cursor = Cursors.Arrow;
                         return;
                     }
 
-                    // Try to open the PDF with the default PDF viewer
+                    // Open the signed URL in the default browser
                     var startInfo = new ProcessStartInfo
                     {
-                        FileName = favorite.These.Fichier,
+                        FileName = signedUrl,
                         UseShellExecute = true
                     };
                     
                     Process.Start(startInfo);
-                    Debug.WriteLine($"Successfully opened PDF: {favorite.These.Fichier}");
+                    Debug.WriteLine($"Successfully opened PDF with signed URL: {signedUrl}");
+                    this.Cursor = Cursors.Arrow;
                 }
                 catch (Exception ex)
                 {
                     Debug.WriteLine($"Error opening PDF file: {ex.Message}");
-                    MessageBox.Show($"Error opening PDF file: {ex.Message}\n\nFile path: {favorite.These.Fichier}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+                    MessageBox.Show($"Error opening PDF file: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+                    this.Cursor = Cursors.Arrow;
                 }
             }
             else

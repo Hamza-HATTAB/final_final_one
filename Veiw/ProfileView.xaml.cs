@@ -1,24 +1,26 @@
 using System;
+using System.IO;
 using System.Windows;
 using System.Windows.Controls;
-using Microsoft.Win32;
-using System.Windows.Input;
 using System.Windows.Media.Imaging;
-using System.Windows.Media;
-using System.Windows.Shapes;
+using Microsoft.Win32;
 using MySql.Data.MySqlClient;
-using DataGridNamespace;
+using System.Diagnostics;
+using DataGridNamespace.Services;
 using UserModels;
+using DataGridNamespace;
+using System.Threading.Tasks;
 
 namespace DataGrid
 {
     public partial class ProfileView : Page
     {
-        private bool isEditing = false;
         private User currentUser;
-
-        public bool IsMaximize { get; private set; }
-        public object EditButton { get; private set; }
+        private bool isEditMode = false;
+        private readonly CloudStorageService _cloudStorageService = new CloudStorageService();
+        private string originalProfilePicRef;
+        private string newProfilePicPath;
+        private Button editProfileButton; // Reference to the edit button
 
         public ProfileView()
         {
@@ -26,206 +28,286 @@ namespace DataGrid
             LoadUserData();
         }
 
-        private void LoadUserData()
+        private async void LoadUserData()
         {
             try
             {
-                string connectionString = "server=localhost;database=gestion_theses;user=root;password=;";
+                // Get current user from session
+                int userId = Session.CurrentUserId;
+                
+                string connectionString = AppConfig.CloudSqlConnectionString;
+                string query = "SELECT id, nom, email, role, firebase_uid, profile_pic_ref FROM users WHERE id = @userId";
+
                 using (MySqlConnection conn = new MySqlConnection(connectionString))
                 {
                     conn.Open();
-                    string query = "SELECT Id, Nom, Email, Role FROM users WHERE Id = @UserId";
                     using (MySqlCommand cmd = new MySqlCommand(query, conn))
                     {
-                        cmd.Parameters.AddWithValue("@UserId", Session.CurrentUserId);
+                        cmd.Parameters.AddWithValue("@userId", userId);
+                        
                         using (MySqlDataReader reader = cmd.ExecuteReader())
                         {
                             if (reader.Read())
                             {
+                                // Parse role string from database to enum
+                                string roleStr = reader.GetString("role");
+                                RoleUtilisateur userRole = RoleUtilisateur.SimpleUser; // Default
+                                
+                                if (string.Equals(roleStr, "admin", StringComparison.OrdinalIgnoreCase))
+                                {
+                                    userRole = RoleUtilisateur.Admin;
+                                }
+                                else if (string.Equals(roleStr, "etudiant", StringComparison.OrdinalIgnoreCase))
+                                {
+                                    userRole = RoleUtilisateur.Etudiant;
+                                }
+                                
                                 currentUser = new User
                                 {
-                                    Id = reader.GetInt32("Id"),
-                                    Nom = reader.GetString("Nom"),
-                                    Email = reader.GetString("Email"),
-                                    Role = ConvertStringToRole(reader.GetString("Role"))
+                                    Id = reader.GetInt32("id"),
+                                    Nom = reader.GetString("nom"),
+                                    Email = reader.GetString("email"),
+                                    Role = userRole
                                 };
 
-                                // Update UI with user data
-                                UsernameTextBox.Text = currentUser.Nom;
-                                EmailTextBox.Text = currentUser.Email;
-                                RoleTextBox.Text = currentUser.Role.ToString();
+                                // Get Firebase UID if available
+                                if (!reader.IsDBNull(reader.GetOrdinal("firebase_uid")))
+                                {
+                                    currentUser.FirebaseUid = reader.GetString("firebase_uid");
+                                }
+
+                                // Get profile picture reference if exists
+                                if (!reader.IsDBNull(reader.GetOrdinal("profile_pic_ref")))
+                                {
+                                    originalProfilePicRef = reader.GetString("profile_pic_ref");
+                                    await LoadProfilePicture(originalProfilePicRef);
+                                }
                             }
+                        }
+                    }
+                }
+
+                // Populate UI fields
+                if (currentUser != null)
+                {
+                    UsernameTextBox.Text = currentUser.Nom;
+                    EmailTextBox.Text = currentUser.Email;
+                    RoleTextBox.Text = currentUser.Role.ToString();
+                }
+                
+                // Find the edit profile button after initialization
+                editProfileButton = FindName("EditProfileButton") as Button;
+                if (editProfileButton == null)
+                {
+                    Debug.WriteLine("Warning: EditProfileButton not found in XAML");
+                }
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"Error loading user data: {ex.Message}");
+                MessageBox.Show($"Error loading user data: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+        }
+
+        private async Task LoadProfilePicture(string profilePicRef)
+        {
+            try
+            {
+                if (!string.IsNullOrEmpty(profilePicRef))
+                {
+                    // Get a signed URL for the profile picture from Cloud Storage
+                    string signedUrl = await _cloudStorageService.GetSignedReadUrl(profilePicRef);
+                    
+                    if (!string.IsNullOrEmpty(signedUrl))
+                    {
+                        BitmapImage bitmap = new BitmapImage();
+                        bitmap.BeginInit();
+                        bitmap.UriSource = new Uri(signedUrl);
+                        bitmap.CacheOption = BitmapCacheOption.OnLoad; // Load the image right away so the URL doesn't expire
+                        bitmap.EndInit();
+
+                        // Set the image as the profile picture
+                        var brush = new System.Windows.Media.ImageBrush(bitmap);
+                        ProfileAvatar.Fill = brush;
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"Error loading profile picture: {ex.Message}");
+                // Don't show message box for profile picture loading errors
+            }
+        }
+
+        private void ToggleEditMode()
+        {
+            isEditMode = !isEditMode;
+            
+            // Toggle UI elements
+            UsernameTextBox.IsReadOnly = !isEditMode;
+            EmailTextBox.IsReadOnly = !isEditMode;
+            PasswordContainer.Visibility = isEditMode ? Visibility.Visible : Visibility.Collapsed;
+            
+            // Update button text
+            if (editProfileButton != null)
+            {
+                editProfileButton.Content = isEditMode ? "Save Changes" : "Edit Profile";
+            }
+        }
+
+        private async void SaveProfile()
+        {
+            try
+            {
+                // Validate inputs
+                if (string.IsNullOrWhiteSpace(UsernameTextBox.Text))
+                {
+                    MessageBox.Show("Username cannot be empty.", "Validation Error", MessageBoxButton.OK, MessageBoxImage.Warning);
+                    return;
+                }
+
+                if (string.IsNullOrWhiteSpace(EmailTextBox.Text) || !EmailTextBox.Text.Contains("@"))
+                {
+                    MessageBox.Show("Please enter a valid email address.", "Validation Error", MessageBoxButton.OK, MessageBoxImage.Warning);
+                    return;
+                }
+
+                // Upload new profile picture if selected
+                string profilePicRef = originalProfilePicRef;
+                if (!string.IsNullOrEmpty(newProfilePicPath))
+                {
+                    // Use Firebase UID for the profile picture name if available, otherwise use user ID
+                    string userId = !string.IsNullOrEmpty(currentUser.FirebaseUid) ? 
+                        currentUser.FirebaseUid : currentUser.Id.ToString();
+                        
+                    string uploadedObjectName = null;
+                    
+                    try
+                    {
+                        // Upload via CloudStorageService
+                        uploadedObjectName = await _cloudStorageService.UploadProfilePictureAsync(newProfilePicPath, userId);
+                    }
+                    catch (Exception ex)
+                    {
+                        Debug.WriteLine($"Error uploading profile picture: {ex.Message}");
+                        MessageBox.Show("Failed to upload profile picture. Please try again.", 
+                            "Upload Error", MessageBoxButton.OK, MessageBoxImage.Error);
+                        return;
+                    }
+                    
+                    if (!string.IsNullOrEmpty(uploadedObjectName))
+                    {
+                        profilePicRef = uploadedObjectName;
+                    }
+                    else
+                    {
+                        MessageBox.Show("Failed to upload profile picture. Please try again.", 
+                            "Upload Error", MessageBoxButton.OK, MessageBoxImage.Error);
+                        return;
+                    }
+                }
+
+                // Update user in database
+                string connectionString = AppConfig.CloudSqlConnectionString;
+                string updateQuery = "UPDATE users SET nom = @nom, email = @email";
+                
+                // Add profile picture update if changed
+                if (profilePicRef != originalProfilePicRef)
+                {
+                    updateQuery += ", profile_pic_ref = @profilePicRef";
+                }
+                
+                updateQuery += " WHERE id = @id";
+
+                using (MySqlConnection conn = new MySqlConnection(connectionString))
+                {
+                    conn.Open();
+                    using (MySqlCommand cmd = new MySqlCommand(updateQuery, conn))
+                    {
+                        cmd.Parameters.AddWithValue("@nom", UsernameTextBox.Text);
+                        cmd.Parameters.AddWithValue("@email", EmailTextBox.Text);
+                        cmd.Parameters.AddWithValue("@id", currentUser.Id);
+                        
+                        if (profilePicRef != originalProfilePicRef)
+                        {
+                            cmd.Parameters.AddWithValue("@profilePicRef", profilePicRef);
+                        }
+                        
+                        int rowsAffected = cmd.ExecuteNonQuery();
+                        
+                        if (rowsAffected > 0)
+                        {
+                            MessageBox.Show("Profile updated successfully!", "Success", MessageBoxButton.OK, MessageBoxImage.Information);
+                            
+                            // Update the original profile pic reference
+                            originalProfilePicRef = profilePicRef;
+                            
+                            // Clear the new profile pic path
+                            newProfilePicPath = null;
+                            
+                            // Toggle edit mode back
+                            ToggleEditMode();
+                        }
+                        else
+                        {
+                            MessageBox.Show("No changes were made to your profile.", "Information", MessageBoxButton.OK, MessageBoxImage.Information);
                         }
                     }
                 }
             }
             catch (Exception ex)
             {
-                MessageBox.Show($"Error loading user data: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+                Debug.WriteLine($"Error saving profile: {ex.Message}");
+                MessageBox.Show($"Error saving profile: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
             }
         }
 
-        private RoleUtilisateur ConvertStringToRole(string roleString)
+        private void EditProfileButton_Click(object sender, RoutedEventArgs e)
         {
-            // Handle case-insensitive conversion
-            if (string.IsNullOrEmpty(roleString))
-                return RoleUtilisateur.SimpleUser; // Default role
-
-            switch (roleString.ToLower())
+            if (isEditMode)
             {
-                case "admin":
-                    return RoleUtilisateur.Admin;
-                case "etudiant":
-                    return RoleUtilisateur.Etudiant;
-                case "simpleuser":
-                case "simple user":
-                    return RoleUtilisateur.SimpleUser;
-                default:
-                    return RoleUtilisateur.SimpleUser;
-            }
-        }
-
-        private void EditProfile_Click(object sender, RoutedEventArgs e)
-        {
-            Button button = sender as Button;
-            if (button == null) return;
-
-            if (!isEditing)
-            {
-                // Enable editing mode
-                UsernameTextBox.IsReadOnly = false;
-                EmailTextBox.IsReadOnly = false;
-                UsernameTextBox.Background = Brushes.White;
-                EmailTextBox.Background = Brushes.White;
-                PasswordContainer.Visibility = Visibility.Visible;
-                button.Content = "Save Changes";
-                isEditing = true;
+                // Save profile
+                SaveProfile();
             }
             else
             {
-                // Save changes and disable editing mode
-                SaveChanges();
-                UsernameTextBox.IsReadOnly = true;
-                EmailTextBox.IsReadOnly = true;
-                UsernameTextBox.Background = Brushes.Transparent;
-                EmailTextBox.Background = Brushes.Transparent;
-                PasswordContainer.Visibility = Visibility.Collapsed;
-                button.Content = "Edit Profile";
-                isEditing = false;
-            }
-        }
-
-        private void SaveChanges()
-        {
-            string newUsername = UsernameTextBox.Text;
-            string newEmail = EmailTextBox.Text;
-            string newPassword = PasswordBox.Password;
-
-            if (string.IsNullOrWhiteSpace(newUsername) || string.IsNullOrWhiteSpace(newEmail))
-            {
-                MessageBox.Show("Username and email cannot be empty!", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
-                return;
-            }
-
-            // Replace hardcoded connection string with AppConfig.CloudSqlConnectionString
-            string connectionString = AppConfig.CloudSqlConnectionString;
-            using (MySqlConnection conn = new MySqlConnection(connectionString))
-            {
-                try
-                {
-                    conn.Open();
-                    string query = "UPDATE users SET Nom = @Nom, Email = @Email";
-                    if (!string.IsNullOrWhiteSpace(newPassword))
-                    {
-                        query += ", Password = @Password";
-                    }
-                    query += " WHERE Id = @Id";
-
-                    using (MySqlCommand cmd = new MySqlCommand(query, conn))
-                    {
-                        cmd.Parameters.AddWithValue("@Nom", newUsername);
-                        cmd.Parameters.AddWithValue("@Email", newEmail);
-                        cmd.Parameters.AddWithValue("@Id", Session.CurrentUserId);
-
-                        if (!string.IsNullOrWhiteSpace(newPassword))
-                        {
-                            cmd.Parameters.AddWithValue("@Password", newPassword);
-                        }
-
-                        int rowsAffected = cmd.ExecuteNonQuery();
-                        if (rowsAffected > 0)
-                        {
-                            MessageBox.Show("Profile updated successfully!", "Success", MessageBoxButton.OK, MessageBoxImage.Information);
-                            // Update current user data
-                            currentUser.Nom = newUsername;
-                            currentUser.Email = newEmail;
-                        }
-                        else
-                        {
-                            MessageBox.Show("Update failed! No changes were made.", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
-                        }
-                    }
-                }
-                catch (Exception ex)
-                {
-                    MessageBox.Show($"Database error: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
-                }
-            }
-        }
-
-        private void Border_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
-        {
-            if (e.ClickCount == 2)
-            {
-                if (IsMaximize)
-                {
-                    this.NavigationService.Content = null; // أو إعادة تعيين الحجم الافتراضي
-                    IsMaximize = false;
-                }
-                else
-                {
-                    // للتكبير، يمكنك تعديل حجم الصفحة حسب الحاجة
-                    IsMaximize = true;
-                }
-            }
-        }
-
-        private void Border_MouseDown(object sender, MouseButtonEventArgs e)
-        {
-            if (e.LeftButton == MouseButtonState.Pressed)
-            {
-                // استخدام DragMove ليس متاحاً للصفحات، فهذه الخاصية للنوافذ
+                // Enter edit mode
+                ToggleEditMode();
             }
         }
 
         private void ChangeProfilePicture_Click(object sender, RoutedEventArgs e)
         {
-            OpenFileDialog openFileDialog = new OpenFileDialog
+            try
             {
-                Title = "Choose a Profile Picture",
-                Filter = "Image Files|*.jpg;*.jpeg;*.png;*.bmp"
-            };
-            if (openFileDialog.ShowDialog() == true)
-            {
-                try
+                OpenFileDialog openFileDialog = new OpenFileDialog
                 {
-                    string imagePath = openFileDialog.FileName;
-                    ImageBrush brush = new ImageBrush();
-                    brush.ImageSource = new BitmapImage(new Uri(imagePath, UriKind.Absolute));
+                    Title = "Select Profile Picture",
+                    Filter = "Image files (*.jpg, *.jpeg, *.png, *.gif)|*.jpg;*.jpeg;*.png;*.gif",
+                    Multiselect = false
+                };
+
+                if (openFileDialog.ShowDialog() == true)
+                {
+                    // Set the new profile pic path
+                    newProfilePicPath = openFileDialog.FileName;
+                    
+                    // Preview the selected image
+                    BitmapImage bitmap = new BitmapImage(new Uri(newProfilePicPath));
+                    var brush = new System.Windows.Media.ImageBrush(bitmap);
                     ProfileAvatar.Fill = brush;
-                }
-                catch (Exception ex)
-                {
-                    MessageBox.Show($"Error loading image: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+                    
+                    // Automatically enter edit mode if not already
+                    if (!isEditMode)
+                    {
+                        ToggleEditMode();
+                    }
                 }
             }
-        }
-
-        private void BackToDashboard_Click(object sender, RoutedEventArgs e)
-        {
-            if (NavigationService != null && NavigationService.CanGoBack)
+            catch (Exception ex)
             {
-                NavigationService.GoBack();
+                Debug.WriteLine($"Error selecting profile picture: {ex.Message}");
+                MessageBox.Show($"Error selecting profile picture: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
             }
         }
     }

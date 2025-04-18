@@ -149,11 +149,11 @@
                     </StackPanel>
 
                     <!-- Edit Button -->
-                    <Button Content="Edit Profile"
-                            Style="{StaticResource ModernButton}"
-                            Width="200"
-                            Margin="0,30,0,0"
-                            Click="EditProfile_Click"/>
+                    <Button x:Name="EditProfileButton" 
+                            Content="Edit Profile" 
+                            Style="{StaticResource ModernButton}" 
+                            Margin="0,20,0,0"
+                            Click="EditProfileButton_Click"/>
                 </StackPanel>
             </Grid>
         </Border>

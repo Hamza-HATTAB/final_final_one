@@ -21,9 +21,14 @@
 	</ItemGroup>
 
 	<ItemGroup>
+		<PackageReference Include="Google.Apis.Auth" Version="1.69.0" />
+		<PackageReference Include="Google.Cloud.Storage.V1" Version="4.11.0" />
 		<PackageReference Include="MahApps.Metro.IconPacks.Material" Version="4.11.0" />
+		<PackageReference Include="MaterialDesignThemes" Version="4.9.0" />
+		<PackageReference Include="Microsoft.VisualStudio.Services.Client" Version="19.225.1" />
 		<PackageReference Include="MySql.Data" Version="9.2.0" />
 		<PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
+		<PackageReference Include="System.Net.Http.Json" Version="8.0.0" />
 	</ItemGroup>
 
 	<ItemGroup>

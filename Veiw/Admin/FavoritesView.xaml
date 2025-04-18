@@ -286,9 +286,11 @@
                     <DataGridTextColumn Header="Author" 
                                         Binding="{Binding These.Auteur}" 
                                         Width="150"/>
-                    <DataGridTextColumn Header="Specialty" 
-                                        Binding="{Binding These.Specialite}" 
-                                        Width="120"/>
+                    <DataGridTextColumn 
+                        Header="Specialty" 
+                        Width="100" 
+                        Binding="{Binding These.Speciality}" 
+                        CanUserSort="True"/>
                     <DataGridTextColumn Header="Type" 
                                         Binding="{Binding These.Type}" 
                                         Width="100"/>

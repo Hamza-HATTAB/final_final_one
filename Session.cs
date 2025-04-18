@@ -9,6 +9,8 @@ namespace DataGridNamespace
         private static int? currentUserId;
         private static string currentUserName;
         private static RoleUtilisateur? currentUserRole;
+        private static string firebaseUserId;
+        private static string currentUserToken;
         private static bool isInitialized = false;
 
         public static int CurrentUserId
@@ -50,9 +52,35 @@ namespace DataGridNamespace
             }
         }
 
+        public static string FirebaseUserId 
+        {
+            get
+            {
+                if (string.IsNullOrEmpty(firebaseUserId))
+                {
+                    Debug.WriteLine("WARNING: Attempted to access FirebaseUserId when not set");
+                    return string.Empty;
+                }
+                return firebaseUserId;
+            }
+        }
+
+        public static string CurrentUserToken
+        {
+            get
+            {
+                if (string.IsNullOrEmpty(currentUserToken))
+                {
+                    Debug.WriteLine("WARNING: Attempted to access CurrentUserToken when not set");
+                    return string.Empty;
+                }
+                return currentUserToken;
+            }
+        }
+
         public static bool IsLoggedIn => isInitialized && currentUserId.HasValue && currentUserId.Value > 0;
 
-        public static void Initialize(int userId, string userName, RoleUtilisateur role)
+        public static void Initialize(int userId, string userName, RoleUtilisateur role, string fbUserId = null, string userToken = null)
         {
             try
             {
@@ -64,9 +92,11 @@ namespace DataGridNamespace
                 currentUserId = userId;
                 currentUserName = userName ?? string.Empty;
                 currentUserRole = role;
+                firebaseUserId = fbUserId;
+                currentUserToken = userToken;
                 isInitialized = true;
 
-                Debug.WriteLine($"Session initialized: User ID={userId}, Name={userName}, Role={role}");
+                Debug.WriteLine($"Session initialized: User ID={userId}, Name={userName}, Role={role}, Firebase UID={fbUserId}");
             }
             catch (Exception ex)
             {
@@ -82,6 +112,8 @@ namespace DataGridNamespace
             currentUserId = null;
             currentUserName = null;
             currentUserRole = null;
+            firebaseUserId = null;
+            currentUserToken = null;
             isInitialized = false;
             Debug.WriteLine("Session cleared");
         }

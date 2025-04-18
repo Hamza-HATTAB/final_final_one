@@ -13,7 +13,7 @@ namespace DataGridNamespace
 
         // Cloud Storage
         public const string StorageBucket = "thesis-manager-files-hr-5173";
-        public const string GenerateUploadUrlEndpoint = "https://your-backend-endpoint/generateUploadUrl";
-        public const string GenerateReadUrlEndpoint = "https://your-backend-endpoint/generateReadUrl";
+        public const string GenerateUploadUrlEndpoint = "https://us-central1-thesis-manager-backend.cloudfunctions.net/generateUploadUrl";
+        public const string GenerateReadUrlEndpoint = "https://us-central1-thesis-manager-backend.cloudfunctions.net/generateReadUrl";
     }
 }

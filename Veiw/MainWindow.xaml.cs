@@ -10,8 +10,6 @@ using DataGrid;
 using System.Collections.ObjectModel;
 using System.Linq;
 using UserModels;
-using DataGridNamespace.SimpleUser;
-using DataGridNamespace.Etudiant;
 using ThesesModels;
 using FavorisModels;
 
@@ -21,6 +19,29 @@ namespace DataGridNamespace
     {
         private User currentUser;
         private bool IsMaximize = false;
+
+        public MainWindow()
+        {
+            InitializeComponent();
+            
+            // Get current user from Session
+            int userId = Session.CurrentUserId;
+            string userName = Session.CurrentUserName;
+            RoleUtilisateur userRole = Session.CurrentUserRole;
+            
+            currentUser = new User
+            {
+                Id = userId,
+                Nom = userName,
+                Role = userRole
+            };
+            
+            // Set window to maximize on startup
+            this.WindowState = WindowState.Maximized;
+            IsMaximize = true;
+            
+            LoadRoleSpecificContent();
+        }
 
         public MainWindow(User user)
         {
@@ -136,9 +157,9 @@ namespace DataGridNamespace
                 ProfileButton.Background = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#7B5CD6"));
                 
                 // Set up etudiant-specific event handlers
-                ThesisButton.Click += EtudiantThesisButton_Click;
+                ThesisButton.Click += ThesisButton_Click;
                 ProfileButton.Click += ProfileButton_Click;
-                FavoritesButton.Click += EtudiantFavoritesButton_Click;
+                FavoritesButton.Click += FavoritesButton_Click;
 
                 // Load profile view by default
                 var profileView = new ProfileView();
@@ -179,7 +200,7 @@ namespace DataGridNamespace
                 ProfileButton.Background = Brushes.Transparent;
                 FavoritesButton.Background = Brushes.Transparent;
                 
-                // Load different thesis view based on user role
+                // Load thesis view based on user role
                 if (currentUser.Role == RoleUtilisateur.Admin)
                 {
                     var thesisView = new Admin.ThesisView();
@@ -187,7 +208,8 @@ namespace DataGridNamespace
                 }
                 else
                 {
-                    var thesisView = new SimpleUserThesisView();
+                    // For all other user types, use the admin thesis view with restricted rights
+                    var thesisView = new Admin.ThesisView();
                     MainFrame.Navigate(thesisView);
                 }
             }
@@ -243,50 +265,8 @@ namespace DataGridNamespace
                 MembersButton.Background = Brushes.Transparent;
                 ProfileButton.Background = Brushes.Transparent;
                 
-                // Load different favorites view based on user role
-                if (currentUser.Role == RoleUtilisateur.Admin)
-                {
-                    var favoritesView = new Admin.FavoritesView();
-                    MainFrame.Navigate(favoritesView);
-                }
-                else
-                {
-                    var favoritesView = new SimpleUserFavoritesView();
-                    MainFrame.Navigate(favoritesView);
-                }
-            }
-            catch (Exception ex)
-            {
-                MessageBox.Show($"Error loading Favorites view: {ex.Message}", "Navigation Error", MessageBoxButton.OK, MessageBoxImage.Error);
-            }
-        }
-
-        private void EtudiantThesisButton_Click(object sender, RoutedEventArgs e)
-        {
-            try
-            {
-                ThesisButton.Background = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#7B5CD6"));
-                ProfileButton.Background = Brushes.Transparent;
-                FavoritesButton.Background = Brushes.Transparent;
-                
-                var thesisView = new EtudiantThesisView();
-                MainFrame.Navigate(thesisView);
-            }
-            catch (Exception ex)
-            {
-                MessageBox.Show($"Error loading Thesis view: {ex.Message}", "Navigation Error", MessageBoxButton.OK, MessageBoxImage.Error);
-            }
-        }
-
-        private void EtudiantFavoritesButton_Click(object sender, RoutedEventArgs e)
-        {
-            try
-            {
-                FavoritesButton.Background = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#7B5CD6"));
-                ThesisButton.Background = Brushes.Transparent;
-                ProfileButton.Background = Brushes.Transparent;
-                
-                var favoritesView = new EtudiantFavoritesView();
+                // Load favorites view based on user role
+                var favoritesView = new Admin.FavoritesView();
                 MainFrame.Navigate(favoritesView);
             }
             catch (Exception ex)

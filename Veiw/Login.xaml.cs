@@ -118,52 +118,6 @@ namespace MyProject
                 : Visibility.Collapsed;
         }
 
-        // Helper method to sign in user with Firebase
-        private async Task<string> SignInUserFirebase(string email, string password)
-        {
-            try
-            {
-                string signInEndpoint = $"{AppConfig.FirebaseAuthBaseUrl}:signInWithPassword?key={AppConfig.FirebaseApiKey}";
-                
-                var requestData = new
-                {
-                    email,
-                    password,
-                    returnSecureToken = true
-                };
-                
-                var jsonContent = JsonConvert.SerializeObject(requestData);
-                var content = new StringContent(jsonContent, Encoding.UTF8, "application/json");
-                
-                var response = await httpClient.PostAsync(signInEndpoint, content);
-                var responseContent = await response.Content.ReadAsStringAsync();
-                
-                Debug.WriteLine($"Firebase Sign-In Response: {responseContent}");
-                
-                if (response.IsSuccessStatusCode)
-                {
-                    // Parse the response to get the Firebase UID (localId)
-                    var responseObj = JObject.Parse(responseContent);
-                    string firebaseUid = responseObj["localId"].ToString();
-                    Debug.WriteLine($"Firebase UID (localId): {firebaseUid}");
-                    return firebaseUid;
-                }
-                else
-                {
-                    var errorObj = JObject.Parse(responseContent);
-                    string errorMessage = errorObj["error"]["message"].ToString();
-                    MessageBox.Show($"Firebase Authentication Error: {errorMessage}", "Login Error", MessageBoxButton.OK, MessageBoxImage.Error);
-                    return null;
-                }
-            }
-            catch (Exception ex)
-            {
-                Debug.WriteLine($"Exception during Firebase sign-in: {ex.Message}");
-                MessageBox.Show($"Error during authentication: {ex.Message}", "Login Error", MessageBoxButton.OK, MessageBoxImage.Error);
-                return null;
-            }
-        }
-
         // Sign In button in Layout1
         private async void SignIn_L1_Click(object sender, RoutedEventArgs e)
         {
@@ -183,93 +137,107 @@ namespace MyProject
 
             try
             {
+                Cursor = Cursors.Wait;
+                
                 // Authenticate with Firebase first
                 string email = txtUser_L1.Text;
                 string password = txtPassword_L1.Password;
                 
-                // Get Firebase UID from authentication
-                string firebaseUid = await SignInUserFirebase(email, password);
+                // Call Firebase Auth API
+                var firebaseResponse = await SignInWithFirebase(email, password);
                 
-                if (string.IsNullOrEmpty(firebaseUid))
+                if (firebaseResponse == null)
                 {
-                    // Firebase authentication failed, already handled in SignInUserFirebase
+                    // Firebase authentication failed, already handled in SignInWithFirebase
+                    Cursor = Cursors.Arrow;
                     return;
                 }
                 
+                string firebaseUid = firebaseResponse.LocalId;
+                string idToken = firebaseResponse.IdToken;
+                
                 Debug.WriteLine($"Successfully authenticated with Firebase. UID: {firebaseUid}");
                 
-                // Now query the database using the Firebase UID
-                string connectionString = AppConfig.CloudSqlConnectionString;
-                Debug.WriteLine($"Attempting to connect using: {AppConfig.CloudSqlConnectionString}");
-
-                using (MySqlConnection conn = new MySqlConnection(connectionString))
+                // Now find this user in our database by firebase_uid
+                string query = "SELECT id, nom, role, email FROM users WHERE firebase_uid = @FirebaseUid";
+                
+                User foundUser = null;
+                
+                using (var conn = new MySqlConnection(AppConfig.CloudSqlConnectionString))
                 {
-                    await conn.OpenAsync();
-                    Debug.WriteLine($"Connection successful. Executing query for FirebaseUID: {firebaseUid}");
-
-                    string loginQuery = "SELECT id, nom, email, role FROM users WHERE firebase_uid = @FirebaseUid";
-                    using (MySqlCommand cmd = new MySqlCommand(loginQuery, conn))
+                    conn.Open();
+                    using (var cmd = new MySqlCommand(query, conn))
                     {
                         cmd.Parameters.AddWithValue("@FirebaseUid", firebaseUid);
-                        Debug.WriteLine($"SQL Query attempted: {cmd.CommandText}");
-                        Debug.WriteLine($"FirebaseUID Parameter: {firebaseUid}");
-
-                        using (var reader = await cmd.ExecuteReaderAsync())
+                        
+                        using (var reader = cmd.ExecuteReader())
                         {
-                            Debug.WriteLine("Query executed. Reading data...");
-                            if (await reader.ReadAsync())
+                            if (reader.Read())
                             {
-                                int userId = reader.GetInt32(0);
-                                string userName = reader.GetString(1);
-                                string userEmail = reader.GetString(2);
-                                string roleStr = reader.IsDBNull(3) ? "" : reader.GetString(3);
-
-                                Debug.WriteLine($"Login successful: User ID={userId}, Name={userName}, Role={roleStr}");
-
-                                RoleUtilisateur role;
-                                if (Enum.TryParse(roleStr, true, out role))
+                                int userId = reader.GetInt32("id");
+                                string username = reader.GetString("nom");
+                                string role = reader.GetString("role");
+                                string userEmail = reader.GetString("email");
+                                
+                                // Map database role to enum
+                                RoleUtilisateur userRole = RoleUtilisateur.SimpleUser; // Default
+                                
+                                if (string.Equals(role, "admin", StringComparison.OrdinalIgnoreCase))
                                 {
-                                    // Initialize session
-                                    DataGridNamespace.Session.Initialize(userId, userName, role);
-                                    
-                                    MessageBox.Show("Welcome! Login successful.");
-                                    // Open MainWindow instead of DashboardView
-                                    var user = new User
-                                    {
-                                        Id = userId,
-                                        Nom = userName,
-                                        Email = userEmail,
-                                        Password = "FIREBASE_AUTH", // Don't store actual password
-                                        Role = role,
-                                        FirebaseUid = firebaseUid
-                                    };
-                                    MainWindow mainWindow = new MainWindow(user);
-                                    mainWindow.Show();
-                                    this.Close();
+                                    userRole = RoleUtilisateur.Admin;
                                 }
-                                else
+                                else if (string.Equals(role, "etudiant", StringComparison.OrdinalIgnoreCase))
                                 {
-                                    MessageBox.Show($"Invalid role in database: '{roleStr}'", "Login Error", MessageBoxButton.OK, MessageBoxImage.Error);
+                                    userRole = RoleUtilisateur.Etudiant;
                                 }
-                            }
-                            else
-                            {
-                                MessageBox.Show("Login successful via Firebase, but user profile not found in application database. Please contact support.", "Login Error", MessageBoxButton.OK, MessageBoxImage.Warning);
+                                
+                                // Create user object
+                                foundUser = new User
+                                {
+                                    Id = userId,
+                                    Nom = username,
+                                    Email = userEmail,
+                                    Role = userRole,
+                                    FirebaseUid = firebaseUid
+                                };
                             }
                         }
                     }
                 }
-            }
-            catch (MySqlException myEx)
-            {
-                Debug.WriteLine($"!!! MySQL Exception during Login DB Query: Code={myEx.Number}, Message={myEx.Message}");
-                Debug.WriteLine($"SQL Query attempted: SELECT id, nom, email, role FROM users WHERE firebase_uid = @FirebaseUid");
-                MessageBox.Show($"Database Login Error ({myEx.Number}): {myEx.Message}. Check debug output.", "DB Error", MessageBoxButton.OK, MessageBoxImage.Error);
+                
+                if (foundUser == null)
+                {
+                    MessageBox.Show("User authenticated but not found in the database.", "Login Error", MessageBoxButton.OK, MessageBoxImage.Error);
+                    Cursor = Cursors.Arrow;
+                    return;
+                }
+                
+                // Initialize the session with Firebase UID and token
+                Session.Initialize(
+                    foundUser.Id,
+                    foundUser.Nom,
+                    foundUser.Role,
+                    foundUser.FirebaseUid,
+                    idToken
+                );
+                
+                Debug.WriteLine($"User successfully logged in: {foundUser.Nom} (ID: {foundUser.Id}, Role: {foundUser.Role})");
+                
+                // Open main window
+                MainWindow mainWindow = new MainWindow();
+                mainWindow.Show();
+                
+                // Close the login window
+                this.Close();
             }
             catch (Exception ex)
             {
-                Debug.WriteLine($"!!! General Exception during Login DB Query: {ex.GetType().Name}, Message={ex.Message}");
-                MessageBox.Show($"General Login Error: {ex.Message}. Check debug output.", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+                Debug.WriteLine($"Exception during login: {ex.Message}");
+                MessageBox.Show($"Error during login: {ex.Message}", "Login Error", MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+            finally
+            {
+                Cursor = Cursors.Arrow;
             }
         }
 
@@ -310,8 +278,52 @@ namespace MyProject
                 : Visibility.Collapsed;
         }
 
-        // Helper method to sign up user with Firebase
-        private async Task<string> SignUpUserFirebase(string email, string password)
+        // Helper method for Firebase sign in
+        private async Task<FirebaseAuthResponse> SignInWithFirebase(string email, string password)
+        {
+            try
+            {
+                string signInEndpoint = $"{AppConfig.FirebaseAuthBaseUrl}:signInWithPassword?key={AppConfig.FirebaseApiKey}";
+                
+                var requestData = new
+                {
+                    email,
+                    password,
+                    returnSecureToken = true
+                };
+                
+                var jsonContent = JsonConvert.SerializeObject(requestData);
+                var content = new StringContent(jsonContent, Encoding.UTF8, "application/json");
+                
+                var response = await httpClient.PostAsync(signInEndpoint, content);
+                var responseContent = await response.Content.ReadAsStringAsync();
+                
+                Debug.WriteLine($"Firebase Sign-In Response: {responseContent}");
+                
+                if (response.IsSuccessStatusCode)
+                {
+                    return JsonConvert.DeserializeObject<FirebaseAuthResponse>(responseContent);
+                }
+                else
+                {
+                    var errorObj = JObject.Parse(responseContent);
+                    string errorMessage = errorObj["error"]["message"].ToString();
+                    string userFriendlyMessage = GetUserFriendlyFirebaseError(errorMessage);
+                    
+                    MessageBox.Show(userFriendlyMessage, "Login Error", MessageBoxButton.OK, MessageBoxImage.Error);
+                    return null;
+                }
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"Exception during Firebase sign-in: {ex.Message}");
+                MessageBox.Show($"Error during authentication: {ex.Message}", "Login Error", MessageBoxButton.OK, MessageBoxImage.Error);
+                return null;
+            }
+        }
+
+        // Helper method for Firebase sign up
+        private async Task<FirebaseAuthResponse> SignUpWithFirebase(string email, string password)
         {
             try
             {
@@ -334,17 +346,15 @@ namespace MyProject
                 
                 if (response.IsSuccessStatusCode)
                 {
-                    // Parse the response to get the Firebase UID (localId)
-                    var responseObj = JObject.Parse(responseContent);
-                    string firebaseUid = responseObj["localId"].ToString();
-                    Debug.WriteLine($"Firebase UID (localId): {firebaseUid}");
-                    return firebaseUid;
+                    return JsonConvert.DeserializeObject<FirebaseAuthResponse>(responseContent);
                 }
                 else
                 {
                     var errorObj = JObject.Parse(responseContent);
                     string errorMessage = errorObj["error"]["message"].ToString();
-                    MessageBox.Show($"Firebase Registration Error: {errorMessage}", "Registration Error", MessageBoxButton.OK, MessageBoxImage.Error);
+                    string userFriendlyMessage = GetUserFriendlyFirebaseError(errorMessage);
+                    
+                    MessageBox.Show(userFriendlyMessage, "Registration Error", MessageBoxButton.OK, MessageBoxImage.Error);
                     return null;
                 }
             }
@@ -356,97 +366,133 @@ namespace MyProject
             }
         }
 
+        // Sign Up button in Layout2
         private async void SignUp_L2_Click(object sender, RoutedEventArgs e)
         {
-            if (string.IsNullOrEmpty(txtUser_L2.Text) || string.IsNullOrEmpty(txtEmail_L2.Text) || string.IsNullOrEmpty(txtPassword_L2.Password))
+            // First validate form fields
+            if (string.IsNullOrEmpty(txtUser_L2.Text))
             {
-                MessageBox.Show("Please fill Username, Email & Password.", "Warning", MessageBoxButton.OK, MessageBoxImage.Warning);
+                MessageBox.Show("Please enter a username.", "Registration Error", MessageBoxButton.OK, MessageBoxImage.Warning);
                 return;
             }
-
-            if (!IsValidEmail(txtEmail_L2.Text))
+            
+            if (string.IsNullOrEmpty(txtEmail_L2.Text) || !IsValidEmail(txtEmail_L2.Text))
             {
-                MessageBox.Show("Invalid Email!", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+                MessageBox.Show("Please enter a valid email address.", "Registration Error", MessageBoxButton.OK, MessageBoxImage.Warning);
                 return;
             }
-
-            var selectedItem = roleCombo_L2.SelectedItem as ComboBoxItem;
-            string roleValue = (selectedItem != null) ? selectedItem.Content.ToString() : "SimpleUser";
-
+            
+            if (string.IsNullOrEmpty(txtPassword_L2.Password) || txtPassword_L2.Password.Length < 6)
+            {
+                MessageBox.Show("Password must be at least 6 characters long.", "Registration Error", MessageBoxButton.OK, MessageBoxImage.Warning);
+                return;
+            }
+            
+            // First test database connection
+            bool isConnected = DataGrid.Models.DatabaseConnection.TestConnection();
+            if (!isConnected)
+            {
+                MessageBox.Show("Cannot connect to database. Please check your database settings.", "Database Error", MessageBoxButton.OK, MessageBoxImage.Error);
+                return;
+            }
+            
             try
             {
-                // First register with Firebase
+                Cursor = Cursors.Wait;
+                
+                string username = txtUser_L2.Text;
                 string email = txtEmail_L2.Text;
                 string password = txtPassword_L2.Password;
                 
-                // Get Firebase UID from registration
-                string firebaseUid = await SignUpUserFirebase(email, password);
+                // Check if email already exists in our database
+                string checkQuery = "SELECT COUNT(*) FROM users WHERE email = @Email";
                 
-                if (string.IsNullOrEmpty(firebaseUid))
+                using (var conn = new MySqlConnection(AppConfig.CloudSqlConnectionString))
                 {
-                    // Firebase registration failed, already handled in SignUpUserFirebase
-                    return;
-                }
-                
-                Debug.WriteLine($"Successfully registered with Firebase. UID: {firebaseUid}");
-                
-                // Now insert the user into our database with the Firebase UID
-                string connectionString = AppConfig.CloudSqlConnectionString;
-                
-                using (MySqlConnection conn = new MySqlConnection(connectionString))
-                {
-                    await conn.OpenAsync();
-                    
-                    // Check if email already exists in our database
-                    string checkEmailQuery = "SELECT COUNT(*) FROM users WHERE email = @Email";
-                    using (MySqlCommand checkCmd = new MySqlCommand(checkEmailQuery, conn))
+                    conn.Open();
+                    using (var cmd = new MySqlCommand(checkQuery, conn))
                     {
-                        checkCmd.Parameters.AddWithValue("@Email", email);
-                        int emailCount = Convert.ToInt32(await checkCmd.ExecuteScalarAsync());
+                        cmd.Parameters.AddWithValue("@Email", email);
                         
-                        if (emailCount > 0)
+                        long count = (long)cmd.ExecuteScalar();
+                        if (count > 0)
                         {
-                            MessageBox.Show("Email already registered in our system.", "Registration Error", MessageBoxButton.OK, MessageBoxImage.Error);
+                            MessageBox.Show("This email address is already registered.", "Registration Error", MessageBoxButton.OK, MessageBoxImage.Warning);
+                            Cursor = Cursors.Arrow;
                             return;
                         }
                     }
-                    
-                    // Insert new user with Firebase UID
-                    string insertQuery = @"INSERT INTO users (nom, email, password, role, firebase_uid) 
-                                         VALUES (@Nom, @Email, @Password, @Role, @FirebaseUid)";
-                    
-                    using (MySqlCommand cmd = new MySqlCommand(insertQuery, conn))
+                }
+                
+                // Register with Firebase
+                var firebaseResponse = await SignUpWithFirebase(email, password);
+                
+                if (firebaseResponse == null)
+                {
+                    // Firebase registration failed, already handled in SignUpWithFirebase
+                    Cursor = Cursors.Arrow;
+                    return;
+                }
+                
+                string firebaseUid = firebaseResponse.LocalId;
+                string idToken = firebaseResponse.IdToken;
+                
+                // Now create the user in our database
+                string insertQuery = @"
+                    INSERT INTO users (nom, email, password, role, firebase_uid)
+                    VALUES (@Username, @Email, 'FIREBASE_AUTH', @Role, @FirebaseUid)";
+                
+                using (var conn = new MySqlConnection(AppConfig.CloudSqlConnectionString))
+                {
+                    conn.Open();
+                    using (var cmd = new MySqlCommand(insertQuery, conn))
                     {
-                        cmd.Parameters.AddWithValue("@Nom", txtUser_L2.Text);
+                        cmd.Parameters.AddWithValue("@Username", username);
                         cmd.Parameters.AddWithValue("@Email", email);
-                        cmd.Parameters.AddWithValue("@Password", "FIREBASE_AUTH"); // Don't store actual password
-                        cmd.Parameters.AddWithValue("@Role", roleValue);
+                        cmd.Parameters.AddWithValue("@Role", "SimpleUser"); // Default role for new users
                         cmd.Parameters.AddWithValue("@FirebaseUid", firebaseUid);
                         
-                        int result = await cmd.ExecuteNonQueryAsync();
+                        int rowsAffected = cmd.ExecuteNonQuery();
                         
-                        if (result > 0)
+                        if (rowsAffected <= 0)
                         {
-                            MessageBox.Show("Registration successful! You can now login.", "Success", MessageBoxButton.OK, MessageBoxImage.Information);
-                            // Switch to login layout
-                            GoToLayout1_Click(sender, e);
+                            MessageBox.Show("Failed to create user in database.", "Registration Error", MessageBoxButton.OK, MessageBoxImage.Error);
+                            Cursor = Cursors.Arrow;
+                            return;
                         }
-                        else
-                        {
-                            MessageBox.Show("Registration failed. Please try again.", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
-                        }
+                        
+                        // Get the new user ID
+                        cmd.CommandText = "SELECT LAST_INSERT_ID()";
+                        int userId = Convert.ToInt32(cmd.ExecuteScalar());
+                        
+                        // Initialize session
+                        Session.Initialize(
+                            userId,
+                            username,
+                            RoleUtilisateur.SimpleUser,
+                            firebaseUid,
+                            idToken
+                        );
+                        
+                        MessageBox.Show("Registration successful!", "Success", MessageBoxButton.OK, MessageBoxImage.Information);
+                        
+                        // Open main window
+                        MainWindow mainWindow = new MainWindow();
+                        mainWindow.Show();
+                        
+                        // Close the login window
+                        this.Close();
                     }
                 }
             }
-            catch (MySqlException myEx)
-            {
-                Debug.WriteLine($"MySQL Exception during Registration: {myEx.Message}");
-                MessageBox.Show($"Database Error: {myEx.Message}", "Registration Error", MessageBoxButton.OK, MessageBoxImage.Error);
-            }
             catch (Exception ex)
             {
-                Debug.WriteLine($"Exception during Registration: {ex.Message}");
-                MessageBox.Show($"Error: {ex.Message}", "Registration Error", MessageBoxButton.OK, MessageBoxImage.Error);
+                Debug.WriteLine($"Exception during registration: {ex.Message}");
+                MessageBox.Show($"Error during registration: {ex.Message}", "Registration Error", MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+            finally
+            {
+                Cursor = Cursors.Arrow;
             }
         }
 
@@ -454,6 +500,47 @@ namespace MyProject
         {
             string pattern = @"^[^@\s]+@[^@\s]+\.[^@\s]+$";
             return Regex.IsMatch(email, pattern);
+        }
+
+        // Helper class for Firebase responses
+        private class FirebaseAuthResponse
+        {
+            [JsonProperty("idToken")]
+            public string IdToken { get; set; }
+            
+            [JsonProperty("email")]
+            public string Email { get; set; }
+            
+            [JsonProperty("refreshToken")]
+            public string RefreshToken { get; set; }
+            
+            [JsonProperty("expiresIn")]
+            public string ExpiresIn { get; set; }
+            
+            [JsonProperty("localId")]
+            public string LocalId { get; set; }
+        }
+
+        // Helper method to get user-friendly error messages
+        private string GetUserFriendlyFirebaseError(string errorCode)
+        {
+            switch (errorCode)
+            {
+                case "EMAIL_EXISTS":
+                    return "This email address is already in use by another account.";
+                case "OPERATION_NOT_ALLOWED":
+                    return "Password sign-in is disabled for this project.";
+                case "TOO_MANY_ATTEMPTS_TRY_LATER":
+                    return "Too many unsuccessful login attempts. Please try again later.";
+                case "EMAIL_NOT_FOUND":
+                    return "There is no user account with this email address.";
+                case "INVALID_PASSWORD":
+                    return "The password is invalid.";
+                case "USER_DISABLED":
+                    return "This user account has been disabled by an administrator.";
+                default:
+                    return $"Authentication error: {errorCode}";
+            }
         }
     }
 }

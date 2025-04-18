@@ -10,6 +10,7 @@ using System.Windows.Media;
 using MySql.Data.MySqlClient;
 using ThesesModels;
 using FavorisModels;
+using System.Windows.Input;
 
 namespace DataGridNamespace.Admin
 {
@@ -58,7 +59,7 @@ namespace DataGridNamespace.Admin
                 try
                 {
                     // Fixed SQL query with correct column names and ascending order
-                    string query = @"SELECT t.id, t.titre, t.auteur, t.speciality as Specialite, t.Type, 
+                    string query = @"SELECT t.id, t.titre, t.auteur, t.speciality, t.Type, 
                                    t.mots_cles as MotsCles, t.annee, t.Resume, t.fichier, t.user_id as UserId 
                                    FROM theses t
                                    ORDER BY t.id ASC";
@@ -79,7 +80,7 @@ namespace DataGridNamespace.Admin
                                             Id = reader.GetInt32("id"),
                                             Titre = reader.IsDBNull(reader.GetOrdinal("titre")) ? "" : reader.GetString("titre"),
                                             Auteur = reader.IsDBNull(reader.GetOrdinal("auteur")) ? "" : reader.GetString("auteur"),
-                                            Specialite = reader.IsDBNull(reader.GetOrdinal("Specialite")) ? "" : reader.GetString("Specialite"),
+                                            Speciality = reader.IsDBNull(reader.GetOrdinal("speciality")) ? "" : reader.GetString("speciality"),
                                             Type = (TypeThese)Enum.Parse(typeof(TypeThese), reader.GetString("Type")),
                                             MotsCles = reader.IsDBNull(reader.GetOrdinal("MotsCles")) ? "" : reader.GetString("MotsCles"),
                                             Annee = reader.GetDateTime("annee"),
@@ -574,7 +575,7 @@ namespace DataGridNamespace.Admin
                     AddDetailField(contentGrid, 0, "Author", thesis.Auteur ?? "N/A");
 
                     // Specialty
-                    AddDetailField(contentGrid, 2, "Specialty", thesis.Specialite ?? "N/A");
+                    AddDetailField(contentGrid, 2, "Specialty", thesis.Speciality ?? "N/A");
 
                     // Type
                     AddDetailField(contentGrid, 4, "Type", thesis.Type.ToString());
@@ -718,7 +719,7 @@ namespace DataGridNamespace.Admin
             }
         }
 
-        private void ViewPdfButton_Click(object sender, RoutedEventArgs e)
+        private async void ViewPdfButton_Click(object sender, RoutedEventArgs e)
         {
             if (sender is Button button && button.Tag is Theses thesis)
             {
@@ -730,34 +731,43 @@ namespace DataGridNamespace.Admin
                         return;
                     }
 
-                    // Ensure the file exists before trying to open it
-                    if (!System.IO.File.Exists(thesis.Fichier))
+                    this.Cursor = Cursors.Wait;
+
+                    // Use CloudStorageService to get a signed URL for the file
+                    var cloudStorageService = new DataGridNamespace.Services.CloudStorageService();
+                    string signedUrl = await cloudStorageService.GetSignedReadUrl(thesis.Fichier);
+                    
+                    if (string.IsNullOrEmpty(signedUrl))
                     {
-                        MessageBox.Show($"PDF file not found at: {thesis.Fichier}", "File Not Found", MessageBoxButton.OK, MessageBoxImage.Warning);
+                        MessageBox.Show("Could not generate a download URL for this file.", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+                        this.Cursor = Cursors.Arrow;
                         return;
                     }
 
-                    // Try to open the PDF with the default PDF viewer
+                    // Open the signed URL in the default browser
                     var startInfo = new System.Diagnostics.ProcessStartInfo
                     {
-                        FileName = thesis.Fichier,
+                        FileName = signedUrl,
                         UseShellExecute = true
                     };
                     
                     System.Diagnostics.Process.Start(startInfo);
-                    Debug.WriteLine($"Successfully opened PDF: {thesis.Fichier}");
+                    Debug.WriteLine($"Successfully opened PDF with signed URL: {signedUrl}");
+                    this.Cursor = Cursors.Arrow;
                 }
                 catch (System.ComponentModel.Win32Exception win32Ex)
                 {
                     Debug.WriteLine($"Win32 error opening PDF file: {win32Ex.Message}");
                     MessageBox.Show($"There was a problem opening the PDF file. Please make sure you have a PDF viewer installed.\n\nError: {win32Ex.Message}", 
                                   "PDF Viewer Error", MessageBoxButton.OK, MessageBoxImage.Error);
+                    this.Cursor = Cursors.Arrow;
                 }
                 catch (Exception ex)
                 {
                     Debug.WriteLine($"Error opening PDF file: {ex.Message}");
-                    MessageBox.Show($"Error opening PDF file: {ex.Message}\n\nFile path: {thesis?.Fichier ?? "Unknown"}", 
+                    MessageBox.Show($"Error opening PDF file: {ex.Message}", 
                                   "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+                    this.Cursor = Cursors.Arrow;
                 }
             }
             else

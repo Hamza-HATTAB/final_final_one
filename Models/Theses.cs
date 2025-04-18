@@ -11,20 +11,16 @@ namespace ThesesModels
         public int Id { get; set; }
 
         [Required]
-        [MaxLength(100)]
+        [MaxLength(255)]
         public string Titre { get; set; }
 
         [Required]
-        [MaxLength(100)]
+        [MaxLength(255)]
         public string Auteur { get; set; }
 
         [Required]
         [MaxLength(100)]
-        public string Nom { get; set; }
-
-        [Required]
-        [MaxLength(100)]
-        public string Specialite { get; set; }
+        public string Speciality { get; set; }
 
         [Required]
         public TypeThese Type { get; set; }
@@ -47,6 +43,9 @@ namespace ThesesModels
 
         [ForeignKey("UserId")]
         public virtual User Utilisateur { get; set; }
+        
+        [NotMapped]
+        public bool IsFavorite { get; set; }
     }
 
     public enum TypeThese

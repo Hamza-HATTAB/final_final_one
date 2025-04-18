@@ -1,14 +1,14 @@
 ﻿using System;
 using System.Collections.Generic;
-using System.Linq;
+using System.ComponentModel;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Data;
+using System.Windows.Input;
 using System.Windows.Media;
 using MySql.Data.MySqlClient;
 using UserModels;
-using System.Diagnostics;
-using DataGridNamespace.Veiw.Converters;
+using DataGridNamespace;
 
 namespace DataGridNamespace.Admin
 {
@@ -28,8 +28,8 @@ namespace DataGridNamespace.Admin
             try
             {
                 allMembers = new List<User>();
-                string connectionString = "Server=localhost;Database=gestion_theses;User ID=root;Password=";
-                string query = "SELECT Id, Nom, Email, Role FROM users";
+                string connectionString = AppConfig.CloudSqlConnectionString;
+                string query = "SELECT id, nom, email, role FROM users ORDER BY id";
 
                 using (MySqlConnection conn = new MySqlConnection(connectionString))
                 {
@@ -40,12 +40,20 @@ namespace DataGridNamespace.Admin
                         {
                             while (reader.Read())
                             {
+                                int userId = reader.GetInt32("id");
+                                string userName = reader.GetString("nom");
+                                string email = reader.GetString("email");
+                                string roleStr = reader.GetString("role");
+
+                                // Convert string role to enum
+                                RoleUtilisateur role = ConvertStringToRole(roleStr);
+
                                 var user = new User
                                 {
-                                    Id = reader.GetInt32("Id"),
-                                    Nom = reader.GetString("Nom"),
-                                    Email = reader.GetString("Email"),
-                                    Role = ConvertStringToRole(reader.GetString("Role"))
+                                    Id = userId,
+                                    Nom = userName,
+                                    Email = email,
+                                    Role = role
                                 };
                                 allMembers.Add(user);
                             }
@@ -56,6 +64,8 @@ namespace DataGridNamespace.Admin
                 membersViewSource = new CollectionViewSource { Source = allMembers };
                 membersViewSource.Filter += MembersViewSource_Filter;
                 MembersDataGrid.ItemsSource = membersViewSource.View;
+
+                //Counter.Text = $"Total: {allMembers.Count} members";
             }
             catch (Exception ex)
             {
@@ -65,7 +75,7 @@ namespace DataGridNamespace.Admin
 
         private void SearchTextBox_TextChanged(object sender, TextChangedEventArgs e)
         {
-            if (membersViewSource?.View != null)
+            if (membersViewSource != null)
             {
                 membersViewSource.View.Refresh();
             }
@@ -73,43 +83,47 @@ namespace DataGridNamespace.Admin
 
         private void MembersViewSource_Filter(object sender, FilterEventArgs e)
         {
-            if (SearchTextBox == null || string.IsNullOrEmpty(SearchTextBox.Text))
-            {
-                e.Accepted = true;
-                return;
-            }
-
-            if (e.Item is User user)
+            if (e.Item is User user && !string.IsNullOrEmpty(SearchTextBox.Text))
             {
                 string searchText = SearchTextBox.Text.ToLower();
-                e.Accepted = user.Nom.ToLower().Contains(searchText) ||
-                           user.Email.ToLower().Contains(searchText) ||
-                           user.Role.ToString().ToLower().Contains(searchText) ||
-                           user.Id.ToString().Contains(searchText);
+                bool nameMatches = !string.IsNullOrEmpty(user.Nom) && user.Nom.ToLower().Contains(searchText);
+                bool emailMatches = !string.IsNullOrEmpty(user.Email) && user.Email.ToLower().Contains(searchText);
+                bool roleMatches = user.Role.ToString().ToLower().Contains(searchText);
+
+                e.Accepted = nameMatches || emailMatches || roleMatches;
             }
             else
             {
-                e.Accepted = false;
+                e.Accepted = true;
             }
         }
 
         private RoleUtilisateur ConvertStringToRole(string roleString)
         {
-            return roleString.ToLower() switch
+            if (string.Equals(roleString, "admin", StringComparison.OrdinalIgnoreCase))
             {
-                "admin" => RoleUtilisateur.Admin,
-                "etudiant" => RoleUtilisateur.Etudiant,
-                "simpleuser" => RoleUtilisateur.SimpleUser,
-                _ => RoleUtilisateur.SimpleUser
-            };
+                return RoleUtilisateur.Admin;
+            }
+            else if (string.Equals(roleString, "etudiant", StringComparison.OrdinalIgnoreCase))
+            {
+                return RoleUtilisateur.Etudiant;
+            }
+            else
+            {
+                return RoleUtilisateur.SimpleUser;
+            }
         }
 
         private void EditButton_Click(object sender, RoutedEventArgs e)
         {
             if (sender is Button button && button.Tag is User user)
             {
-                var editWindow = new EditMember(user, LoadMembers);
-                editWindow.ShowDialog();
+                EditMember editWindow = new EditMember(user);
+                if (editWindow.ShowDialog() == true)
+                {
+                    // Refresh the list after editing
+                    LoadMembers();
+                }
             }
         }
 
@@ -117,26 +131,47 @@ namespace DataGridNamespace.Admin
         {
             if (sender is Button button && button.Tag is User user)
             {
-                var result = MessageBox.Show($"Are you sure you want to delete {user.Nom}?", 
-                    "Confirm Delete", MessageBoxButton.YesNo, MessageBoxImage.Warning);
+                if (user.Role == RoleUtilisateur.Admin)
+                {
+                    MessageBox.Show("Cannot delete an administrator account.", "Warning", MessageBoxButton.OK, MessageBoxImage.Warning);
+                    return;
+                }
+
+                // Ask for confirmation
+                var result = MessageBox.Show($"Are you sure you want to delete the user: {user.Nom}?\nThis action cannot be undone.", 
+                                          "Delete Confirmation", 
+                                          MessageBoxButton.YesNo, 
+                                          MessageBoxImage.Warning);
 
                 if (result == MessageBoxResult.Yes)
                 {
                     try
                     {
-                        string connectionString = "Server=localhost;Database=gestion_theses;User ID=root;Password=";
+                        // Delete from database
+                        string connectionString = AppConfig.CloudSqlConnectionString;
+                        string query = "DELETE FROM users WHERE id = @userId";
+
                         using (MySqlConnection conn = new MySqlConnection(connectionString))
                         {
                             conn.Open();
-                            string query = "DELETE FROM users WHERE Id = @Id";
                             using (MySqlCommand cmd = new MySqlCommand(query, conn))
                             {
-                                cmd.Parameters.AddWithValue("@Id", user.Id);
-                                cmd.ExecuteNonQuery();
+                                cmd.Parameters.AddWithValue("@userId", user.Id);
+                                int rowsAffected = cmd.ExecuteNonQuery();
+
+                                if (rowsAffected > 0)
+                                {
+                                    // Remove from the list
+                                    allMembers.Remove(user);
+                                    membersViewSource.View.Refresh();
+                                    MessageBox.Show("User deleted successfully!", "Success", MessageBoxButton.OK, MessageBoxImage.Information);
+                                }
+                                else
+                                {
+                                    MessageBox.Show("Failed to delete user. User not found.", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+                                }
                             }
                         }
-                        LoadMembers(); // Refresh the list
-                        MessageBox.Show("User deleted successfully!", "Success", MessageBoxButton.OK, MessageBoxImage.Information);
                     }
                     catch (Exception ex)
                     {
@@ -144,69 +179,6 @@ namespace DataGridNamespace.Admin
                     }
                 }
             }
-        }
-    }
-
-    public class RowNumberConverter : IValueConverter
-    {
-        public object Convert(object value, Type targetType, object parameter, System.Globalization.CultureInfo culture)
-        {
-            if (value is DataGridRow row)
-            {
-                return row.GetIndex() + 1;
-            }
-            return null;
-        }
-
-        public object ConvertBack(object value, Type targetType, object parameter, System.Globalization.CultureInfo culture)
-        {
-            throw new NotImplementedException();
-        }
-    }
-
-    public class RoleToColorConverter : IValueConverter
-    {
-        public object Convert(object value, Type targetType, object parameter, System.Globalization.CultureInfo culture)
-        {
-            if (value is RoleUtilisateur role)
-            {
-                return role switch
-                {
-                    RoleUtilisateur.Admin => new SolidColorBrush((Color)ColorConverter.ConvertFromString("#4F46E5")),
-                    RoleUtilisateur.Etudiant => new SolidColorBrush((Color)ColorConverter.ConvertFromString("#0EA5E9")),
-                    RoleUtilisateur.SimpleUser => new SolidColorBrush((Color)ColorConverter.ConvertFromString("#10B981")),
-                    _ => new SolidColorBrush((Color)ColorConverter.ConvertFromString("#6B7280"))
-                };
-            }
-            return new SolidColorBrush((Color)ColorConverter.ConvertFromString("#6B7280"));
-        }
-
-        public object ConvertBack(object value, Type targetType, object parameter, System.Globalization.CultureInfo culture)
-        {
-            throw new NotImplementedException();
-        }
-    }
-
-    public class NameToInitialsConverter : IValueConverter
-    {
-        public object Convert(object value, Type targetType, object parameter, System.Globalization.CultureInfo culture)
-        {
-            if (value is string name && !string.IsNullOrEmpty(name))
-            {
-                var parts = name.Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
-                if (parts.Length > 0)
-                {
-                    if (parts.Length == 1)
-                        return parts[0][0].ToString().ToUpper();
-                    return (parts[0][0].ToString() + parts[^1][0].ToString()).ToUpper();
-                }
-            }
-            return "?";
-        }
-
-        public object ConvertBack(object value, Type targetType, object parameter, System.Globalization.CultureInfo culture)
-        {
-            throw new NotImplementedException();
         }
     }
 }

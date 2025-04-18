@@ -1,0 +1,44 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+	<PropertyGroup>
+		<OutputType>WinExe</OutputType>
+		<TargetFramework>net9.0-windows</TargetFramework>
+		<UseWPF>true</UseWPF>
+	</PropertyGroup>
+
+	<ItemGroup>
+		<None Remove="Images\icons8-email-96.png" />
+		<None Remove="Images\ion--logo-linkedin.png" />
+		<None Remove="Images\minimize.png" />
+		<None Remove="Images\nimbus--close.png" />
+		<None Remove="Images\nimbus--mail.png" />
+		<None Remove="Images\p1.jpg" />
+		<None Remove="Images\ri--account-box-fill.png" />
+		<None Remove="Images\ri--facebook-box-fill.png" />
+		<None Remove="Images\ri--google-fill.png" />
+		<None Remove="Images\ri--lock-2-line.png" />
+		<None Remove="Images\tdesign--user.png" />
+	</ItemGroup>
+
+	<ItemGroup>
+		<PackageReference Include="MahApps.Metro.IconPacks.Material" Version="4.11.0" />
+		<PackageReference Include="MySql.Data" Version="9.2.0" />
+		<PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
+	</ItemGroup>
+
+	<ItemGroup>
+		<Resource Include="Images\ion--logo-linkedin.png" />
+		<Resource Include="Images\minimize.png" />
+		<Resource Include="Images\nimbus--close.png" />
+		<Resource Include="Images\nimbus--mail.png" />
+		<Resource Include="Images\p1.jpg">
+			<CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+		</Resource>
+		<Resource Include="Images\ri--account-box-fill.png" />
+		<Resource Include="Images\ri--facebook-box-fill.png" />
+		<Resource Include="Images\ri--google-fill.png" />
+		<Resource Include="Images\ri--lock-2-line.png" />
+		<Resource Include="Images\tdesign--user.png" />
+	</ItemGroup>
+
+</Project>

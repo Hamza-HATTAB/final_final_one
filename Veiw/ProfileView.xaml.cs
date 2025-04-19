@@ -113,28 +113,39 @@ namespace DataGrid
         {
             try
             {
-                if (!string.IsNullOrEmpty(profilePicRef))
+                if (string.IsNullOrEmpty(profilePicRef))
                 {
-                    // Get a signed URL for the profile picture from Cloud Storage
-                    string signedUrl = await _cloudStorageService.GetSignedReadUrl(profilePicRef);
-                    
-                    if (!string.IsNullOrEmpty(signedUrl))
-                    {
-                        BitmapImage bitmap = new BitmapImage();
-                        bitmap.BeginInit();
-                        bitmap.UriSource = new Uri(signedUrl);
-                        bitmap.CacheOption = BitmapCacheOption.OnLoad; // Load the image right away so the URL doesn't expire
-                        bitmap.EndInit();
-
-                        // Set the image as the profile picture
-                        var brush = new System.Windows.Media.ImageBrush(bitmap);
-                        ProfileAvatar.Fill = brush;
-                    }
+                    Debug.WriteLine("Profile picture reference is empty, using default avatar");
+                    return;
                 }
+
+                Debug.WriteLine($"Attempting to load profile picture with object name: {profilePicRef}");
+                
+                // Get a signed URL for the profile picture from Cloud Storage
+                string signedUrl = await _cloudStorageService.GetSignedReadUrl(profilePicRef);
+                
+                if (string.IsNullOrEmpty(signedUrl))
+                {
+                    Debug.WriteLine("Failed to get signed URL for profile picture");
+                    return;
+                }
+                
+                Debug.WriteLine($"Successfully generated signed URL for profile picture: {signedUrl}");
+                
+                BitmapImage bitmap = new BitmapImage();
+                bitmap.BeginInit();
+                bitmap.UriSource = new Uri(signedUrl);
+                bitmap.CacheOption = BitmapCacheOption.OnLoad; // Load the image right away so the URL doesn't expire
+                bitmap.EndInit();
+
+                // Set the image as the profile picture
+                var brush = new System.Windows.Media.ImageBrush(bitmap);
+                ProfileAvatar.Fill = brush;
+                Debug.WriteLine("Successfully displayed profile picture");
             }
             catch (Exception ex)
             {
-                Debug.WriteLine($"Error loading profile picture: {ex.Message}");
+                Debug.WriteLine($"Error loading profile picture: {ex.Message}\nStack trace: {ex.StackTrace}");
                 // Don't show message box for profile picture loading errors
             }
         }

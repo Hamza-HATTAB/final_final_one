@@ -132,7 +132,7 @@
                                             <ColumnDefinition Width="Auto"/>
                                         </Grid.ColumnDefinitions>
                                         <StackPanel Grid.Column="0">
-                                            <TextBlock Text="{Binding Title}" FontWeight="SemiBold"/>
+                                            <TextBlock Text="{Binding Titre}" FontWeight="SemiBold"/>
                                             <TextBlock Text="{Binding Author}" Foreground="#666666" FontSize="12"/>
                                         </StackPanel>
                                         <TextBlock Grid.Column="1" Text="{Binding Date}" Foreground="#666666" FontSize="12"/>

@@ -3,14 +3,13 @@ using System.Diagnostics;
 using System.Threading;
 using MySql.Data.MySqlClient;
 using System.Collections.Generic;
-using DataGridNamespace; // Add if not present
+using DataGridNamespace; // For AppConfig
 
 namespace DataGrid.Models
 {
 	public class DatabaseConnection
 	{
-		// Updated to use AppConfig.CloudSqlConnectionString
-		private static string connectionString = AppConfig.CloudSqlConnectionString;
+		// Removed static connectionString field to avoid inconsistencies
 		private static int commandTimeout = 60;       // Command timeout in seconds
 		private static int maxRetries = 3;            // Maximum number of connection retry attempts
 		private static int retryDelayMs = 1000;       // Delay between retries in milliseconds
@@ -24,19 +23,6 @@ namespace DataGrid.Models
 		}
 
 		/// <summary>
-		/// Sets the connection string used for database operations
-		/// </summary>
-		public static void SetConnectionString(string newConnectionString)
-		{
-			if (string.IsNullOrEmpty(newConnectionString))
-			{
-				throw new ArgumentException("Connection string cannot be empty");
-			}
-			
-			connectionString = newConnectionString;
-		}
-
-		/// <summary>
 		/// Tests the connection to the database
 		/// </summary>
 		/// <returns>True if connection successful, false otherwise</returns>
@@ -44,7 +30,8 @@ namespace DataGrid.Models
 		{
 			try
 			{
-				using (MySqlConnection conn = new MySqlConnection(connectionString))
+				// Using AppConfig.CloudSqlConnectionString directly
+				using (MySqlConnection conn = new MySqlConnection(AppConfig.CloudSqlConnectionString))
 				{
 					conn.Open();
 					Debug.WriteLine("Database connection successful!");
@@ -79,7 +66,8 @@ namespace DataGrid.Models
 		/// <returns>Open MySqlConnection</returns>
 		public static MySqlConnection CreateConnection()
 		{
-			var connection = new MySqlConnection(connectionString);
+			// Using AppConfig.CloudSqlConnectionString directly
+			var connection = new MySqlConnection(AppConfig.CloudSqlConnectionString);
 			// ConnectionTimeout is read-only and set through the connection string
 			
 			for (int attempt = 1; attempt <= maxRetries; attempt++)
@@ -137,6 +125,7 @@ namespace DataGrid.Models
 		{
 			var results = new List<Dictionary<string, object>>();
 			
+			// Using AppConfig.CloudSqlConnectionString through CreateConnection
 			using (var connection = CreateConnection())
 			{
 				using (var command = CreateCommand(query, connection, parameters))
@@ -176,6 +165,7 @@ namespace DataGrid.Models
 		/// </summary>
 		public static object ExecuteScalar(string query, params MySqlParameter[] parameters)
 		{
+			// Using AppConfig.CloudSqlConnectionString through CreateConnection
 			using (var connection = CreateConnection())
 			{
 				using (var command = CreateCommand(query, connection, parameters))
@@ -198,6 +188,7 @@ namespace DataGrid.Models
 		/// </summary>
 		public static int ExecuteNonQuery(string query, params MySqlParameter[] parameters)
 		{
+			// Using AppConfig.CloudSqlConnectionString through CreateConnection
 			using (var connection = CreateConnection())
 			{
 				using (var command = CreateCommand(query, connection, parameters))

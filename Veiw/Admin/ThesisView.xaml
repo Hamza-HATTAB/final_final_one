@@ -324,7 +324,7 @@
                                         Binding="{Binding Auteur}" 
                                         Width="150"/>
                     <DataGridTextColumn Header="Specialty" 
-                                        Binding="{Binding Specialite}" 
+                                        Binding="{Binding Speciality}" 
                                         Width="120"/>
                     <DataGridTextColumn Header="Type" 
                                         Binding="{Binding Type}" 

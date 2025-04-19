@@ -26,6 +26,7 @@ namespace DataGridNamespace.Admin
         private string currentTypeFilter = "All Types";
         private string currentYearFilter = "All Years";
         private ObservableCollection<Theses> filteredTheses;
+        private bool isDataLoaded = false;
 
         public ThesisView()
         {
@@ -36,9 +37,14 @@ namespace DataGridNamespace.Admin
 
         private void ThesisView_Loaded(object sender, RoutedEventArgs e)
         {
-            // Now that the control is loaded, we can safely load data
-            LoadTheses();
-            SetupPagination();
+            // Only load data if it hasn't been loaded yet
+            if (!isDataLoaded)
+            {
+                // Now that the control is loaded, we can safely load data
+                LoadTheses();
+                SetupPagination();
+                isDataLoaded = true;
+            }
         }
 
         private void LoadTheses()
@@ -46,7 +52,7 @@ namespace DataGridNamespace.Admin
             try
             {
                 // First test database connection
-                bool isConnected = DataGrid.Models.DatabaseConnection.TestConnection();
+                bool isConnected = TestDatabaseConnection();
                 if (!isConnected)
                 {
                     MessageBox.Show("Cannot connect to database. Please check your database settings.", "Database Error", MessageBoxButton.OK, MessageBoxImage.Error);
@@ -54,7 +60,7 @@ namespace DataGridNamespace.Admin
                 }
 
                 allTheses = new ObservableCollection<Theses>();
-                string connectionString = DataGrid.Models.DatabaseConnection.GetConnectionString();
+                string connectionString = AppConfig.CloudSqlConnectionString;
                 
                 try
                 {
@@ -165,6 +171,23 @@ namespace DataGridNamespace.Admin
                 }
                 
                 UpdatePaginationControls();
+            }
+        }
+
+        private bool TestDatabaseConnection()
+        {
+            try
+            {
+                using (MySqlConnection conn = new MySqlConnection(AppConfig.CloudSqlConnectionString))
+                {
+                    conn.Open();
+                    return true;
+                }
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"Database connection test failed: {ex.Message}");
+                return false;
             }
         }
 
@@ -731,6 +754,7 @@ namespace DataGridNamespace.Admin
                         return;
                     }
 
+                    Debug.WriteLine($"Attempting to open PDF document with object name: {thesis.Fichier}");
                     this.Cursor = Cursors.Wait;
 
                     // Use CloudStorageService to get a signed URL for the file
@@ -739,32 +763,67 @@ namespace DataGridNamespace.Admin
                     
                     if (string.IsNullOrEmpty(signedUrl))
                     {
+                        Debug.WriteLine("Failed to generate signed URL for PDF document");
                         MessageBox.Show("Could not generate a download URL for this file.", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
                         this.Cursor = Cursors.Arrow;
                         return;
                     }
 
+                    Debug.WriteLine($"Successfully generated signed URL: {signedUrl}");
+
                     // Open the signed URL in the default browser
-                    var startInfo = new System.Diagnostics.ProcessStartInfo
+                    try
                     {
-                        FileName = signedUrl,
-                        UseShellExecute = true
-                    };
-                    
-                    System.Diagnostics.Process.Start(startInfo);
-                    Debug.WriteLine($"Successfully opened PDF with signed URL: {signedUrl}");
-                    this.Cursor = Cursors.Arrow;
-                }
-                catch (System.ComponentModel.Win32Exception win32Ex)
-                {
-                    Debug.WriteLine($"Win32 error opening PDF file: {win32Ex.Message}");
-                    MessageBox.Show($"There was a problem opening the PDF file. Please make sure you have a PDF viewer installed.\n\nError: {win32Ex.Message}", 
-                                  "PDF Viewer Error", MessageBoxButton.OK, MessageBoxImage.Error);
+                        // Use ProcessStartInfo with UseShellExecute set to true to open URL in default browser
+                        var processStartInfo = new ProcessStartInfo
+                        {
+                            FileName = signedUrl,
+                            UseShellExecute = true
+                        };
+                        Process.Start(processStartInfo);
+                        Debug.WriteLine("Successfully launched browser with signed URL");
+                    }
+                    catch (System.ComponentModel.Win32Exception win32Ex)
+                    {
+                        Debug.WriteLine($"Win32 error opening PDF URL: {win32Ex.Message} (Error code: {win32Ex.NativeErrorCode})");
+                        
+                        // Try an alternative approach if the first method fails
+                        try
+                        {
+                            var baseUri = new Uri(signedUrl);
+                            Debug.WriteLine($"Attempting to open URL using alternative approach: {baseUri}");
+                            
+                            // On Windows 10, this alternative method may work better in some cases
+                            Process.Start(new ProcessStartInfo
+                            {
+                                FileName = "cmd",
+                                Arguments = $"/c start \"\" \"{signedUrl}\"",
+                                CreateNoWindow = true
+                            });
+                            Debug.WriteLine("Successfully launched using cmd start command");
+                        }
+                        catch (Exception altEx)
+                        {
+                            Debug.WriteLine($"Alternative method also failed: {altEx.Message}");
+                            MessageBox.Show("Unable to open the PDF file. Please copy the URL and open it manually in your browser.", 
+                                          "Browser Launch Error", MessageBoxButton.OK, MessageBoxImage.Error);
+                            
+                            // Offer to copy the URL to clipboard
+                            var clipboardResult = MessageBox.Show("Would you like to copy the URL to your clipboard?", 
+                                                               "Copy URL", MessageBoxButton.YesNo, MessageBoxImage.Question);
+                            if (clipboardResult == MessageBoxResult.Yes)
+                            {
+                                System.Windows.Clipboard.SetText(signedUrl);
+                                MessageBox.Show("URL copied to clipboard. You can paste it into your browser.", 
+                                              "URL Copied", MessageBoxButton.OK, MessageBoxImage.Information);
+                            }
+                        }
+                    }
                     this.Cursor = Cursors.Arrow;
                 }
                 catch (Exception ex)
                 {
-                    Debug.WriteLine($"Error opening PDF file: {ex.Message}");
+                    Debug.WriteLine($"Error opening PDF file: {ex.Message}\nStack trace: {ex.StackTrace}");
                     MessageBox.Show($"Error opening PDF file: {ex.Message}", 
                                   "Error", MessageBoxButton.OK, MessageBoxImage.Error);
                     this.Cursor = Cursors.Arrow;
@@ -788,7 +847,7 @@ namespace DataGridNamespace.Admin
 
                     // Check if this thesis is already in favorites for this user
                     bool isAlreadyInFavorites = false;
-                    string connectionString = DataGrid.Models.DatabaseConnection.GetConnectionString();
+                    string connectionString = AppConfig.CloudSqlConnectionString;
 
                     using (MySqlConnection conn = new MySqlConnection(connectionString))
                     {
@@ -867,7 +926,7 @@ namespace DataGridNamespace.Admin
                     
                     if (result == MessageBoxResult.Yes)
                     {
-                        string connectionString = DataGrid.Models.DatabaseConnection.GetConnectionString();
+                        string connectionString = AppConfig.CloudSqlConnectionString;
                         using (MySqlConnection conn = new MySqlConnection(connectionString))
                         {
                             conn.Open();

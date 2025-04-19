@@ -150,11 +150,10 @@ namespace DataGridNamespace.Admin
                 TypeThese type = (TypeThese)Enum.Parse(typeof(TypeThese), typeStr);
 
                 // Save to database
-                string connectionString = AppConfig.CloudSqlConnectionString;
                 string query = @"INSERT INTO theses (titre, auteur, speciality, Type, mots_cles, annee, Resume, fichier, user_id) 
                                VALUES (@titre, @auteur, @speciality, @type, @motsCles, @annee, @resume, @fichier, @userId)";
 
-                using (MySqlConnection conn = new MySqlConnection(connectionString))
+                using (MySqlConnection conn = new MySqlConnection(AppConfig.CloudSqlConnectionString))
                 {
                     conn.Open();
                     using (MySqlCommand cmd = new MySqlCommand(query, conn))

@@ -25,6 +25,7 @@ namespace DataGridNamespace.Admin
         private string currentSearchText = "";
         private string currentTypeFilter = "All Types";
         private ObservableCollection<Favoris> filteredFavorites;
+        private bool isDataLoaded = false;
 
         public FavoritesView()
         {
@@ -35,9 +36,14 @@ namespace DataGridNamespace.Admin
 
         private void FavoritesView_Loaded(object sender, RoutedEventArgs e)
         {
-            // Now that the control is loaded, we can safely load data
-            LoadFavorites();
-            SetupPagination();
+            // Only load data if it hasn't been loaded yet
+            if (!isDataLoaded)
+            {
+                // Now that the control is loaded, we can safely load data
+                LoadFavorites();
+                SetupPagination();
+                isDataLoaded = true;
+            }
         }
 
         private void LoadFavorites()
@@ -679,6 +685,7 @@ namespace DataGridNamespace.Admin
                         return;
                     }
 
+                    Debug.WriteLine($"Attempting to open PDF document with object name: {favorite.These.Fichier}");
                     this.Cursor = Cursors.Wait;
 
                     // Use CloudStorageService to get a signed URL for the file
@@ -687,10 +694,13 @@ namespace DataGridNamespace.Admin
                     
                     if (string.IsNullOrEmpty(signedUrl))
                     {
+                        Debug.WriteLine("Failed to generate signed URL for PDF document");
                         MessageBox.Show("Could not generate a download URL for this file.", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
                         this.Cursor = Cursors.Arrow;
                         return;
                     }
+
+                    Debug.WriteLine($"Successfully generated signed URL: {signedUrl}");
 
                     // Open the signed URL in the default browser
                     var startInfo = new ProcessStartInfo
@@ -699,13 +709,41 @@ namespace DataGridNamespace.Admin
                         UseShellExecute = true
                     };
                     
-                    Process.Start(startInfo);
-                    Debug.WriteLine($"Successfully opened PDF with signed URL: {signedUrl}");
+                    try
+                    {
+                        Process.Start(startInfo);
+                        Debug.WriteLine($"Successfully opened PDF with signed URL: {signedUrl}");
+                    }
+                    catch (System.ComponentModel.Win32Exception win32Ex) when (win32Ex.NativeErrorCode == 1155)
+                    {
+                        // No application is associated with the specified file for this operation
+                        Debug.WriteLine($"Win32 error (no default browser): {win32Ex.Message} (Error code: {win32Ex.NativeErrorCode})");
+                        MessageBox.Show("No default browser is configured on your system. Please set a default web browser to view PDF files.", 
+                                      "Browser Configuration Error", MessageBoxButton.OK, MessageBoxImage.Error);
+                        
+                        // Offer to copy the URL to clipboard
+                        var clipboardResult = MessageBox.Show("Would you like to copy the URL to your clipboard instead?", 
+                                                           "Copy URL", MessageBoxButton.YesNo, MessageBoxImage.Question);
+                        if (clipboardResult == MessageBoxResult.Yes)
+                        {
+                            System.Windows.Clipboard.SetText(signedUrl);
+                            MessageBox.Show("URL copied to clipboard. You can paste it into a browser manually.", 
+                                          "URL Copied", MessageBoxButton.OK, MessageBoxImage.Information);
+                        }
+                        
+                        Debug.WriteLine($"Win32 error opening PDF file (No default browser): {win32Ex.Message}");
+                    }
+                    catch (System.ComponentModel.Win32Exception win32Ex)
+                    {
+                        Debug.WriteLine($"Win32 error opening PDF file: {win32Ex.Message} (Error code: {win32Ex.NativeErrorCode})");
+                        MessageBox.Show($"There was a problem opening the PDF file. Please make sure you have a PDF viewer installed.\n\nError: {win32Ex.Message}", 
+                                      "PDF Viewer Error", MessageBoxButton.OK, MessageBoxImage.Error);
+                    }
                     this.Cursor = Cursors.Arrow;
                 }
                 catch (Exception ex)
                 {
-                    Debug.WriteLine($"Error opening PDF file: {ex.Message}");
+                    Debug.WriteLine($"Error opening PDF file: {ex.Message}\nStack trace: {ex.StackTrace}");
                     MessageBox.Show($"Error opening PDF file: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
                     this.Cursor = Cursors.Arrow;
                 }

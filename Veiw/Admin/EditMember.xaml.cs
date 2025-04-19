@@ -3,7 +3,9 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Linq;
 using MySql.Data.MySqlClient;
+using System.Diagnostics;
 using UserModels;
+using DataGridNamespace;
 
 namespace DataGridNamespace.Admin
 {
@@ -55,8 +57,11 @@ namespace DataGridNamespace.Admin
                     return;
                 }
 
-                string connectionString = DataGrid.Models.DatabaseConnection.GetConnectionString();
-                string query = "UPDATE users SET Nom = @name, Role = @role, Email = @email WHERE Id = @id";
+                // Using AppConfig directly to get the connection string
+                string connectionString = AppConfig.CloudSqlConnectionString;
+                Debug.WriteLine("Updating user data with connection string from AppConfig");
+                
+                string query = "UPDATE users SET nom = @name, role = @role, email = @email WHERE id = @id";
 
                 using (MySqlConnection conn = new MySqlConnection(connectionString))
                 {
@@ -64,11 +69,17 @@ namespace DataGridNamespace.Admin
                     using (MySqlCommand cmd = new MySqlCommand(query, conn))
                     {
                         cmd.Parameters.AddWithValue("@name", NameTextBox.Text);
-                        cmd.Parameters.AddWithValue("@role", ((ComboBoxItem)RoleComboBox.SelectedItem).Content.ToString());
+                        cmd.Parameters.AddWithValue("@role", ((ComboBoxItem)RoleComboBox.SelectedItem).Content.ToString().ToLower());
                         cmd.Parameters.AddWithValue("@email", EmailTextBox.Text);
                         cmd.Parameters.AddWithValue("@id", _user.Id);
 
-                        cmd.ExecuteNonQuery();
+                        int rowsAffected = cmd.ExecuteNonQuery();
+                        if (rowsAffected == 0)
+                        {
+                            MessageBox.Show("No rows were updated. The user may no longer exist in the database.", 
+                                "Warning", MessageBoxButton.OK, MessageBoxImage.Warning);
+                            return;
+                        }
                     }
                 }
 
@@ -86,6 +97,7 @@ namespace DataGridNamespace.Admin
             }
             catch (Exception ex)
             {
+                Debug.WriteLine($"Error updating member: {ex.Message}");
                 MessageBox.Show($"Error updating member: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
             }
         }

@@ -17,6 +17,11 @@ namespace DataGridNamespace.Services
         private readonly string _bucketName = AppConfig.StorageBucket;
         private readonly HttpClient _httpClient;
 
+        // In a production environment, this service would implement token refresh logic.
+        // When a 401 Unauthorized is received, it would use the Firebase refreshToken 
+        // to automatically obtain a new idToken without requiring user re-login.
+        // For now, re-logging in is the workaround when tokens expire.
+
         public CloudStorageService()
         {
             try
@@ -46,16 +51,23 @@ namespace DataGridNamespace.Services
                     return null;
                 }
 
+                // Check if we have a valid token
+                if (string.IsNullOrEmpty(Session.CurrentUserToken))
+                {
+                    Debug.WriteLine("GetSignedReadUrl: User token is null or empty");
+                    MessageBox.Show("You must be logged in to access files.", 
+                        "Authentication Error", MessageBoxButton.OK, MessageBoxImage.Error);
+                    return null;
+                }
+
                 Debug.WriteLine($"Getting signed URL for object: {objectName}");
+                Debug.WriteLine($"Using token: {Session.CurrentUserToken.Substring(0, Math.Min(10, Session.CurrentUserToken.Length))}...");
 
                 // Set up the request
                 var request = new HttpRequestMessage(HttpMethod.Post, AppConfig.GenerateReadUrlEndpoint);
                 
-                // Add Firebase token if available
-                if (!string.IsNullOrEmpty(Session.CurrentUserToken))
-                {
-                    request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", Session.CurrentUserToken);
-                }
+                // Add Firebase token
+                request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", Session.CurrentUserToken);
                 
                 // Create request body
                 var requestBody = new
@@ -68,11 +80,18 @@ namespace DataGridNamespace.Services
                 request.Content = new StringContent(jsonContent, Encoding.UTF8, "application/json");
                 
                 // Send request
+                Debug.WriteLine($"Sending request to: {AppConfig.GenerateReadUrlEndpoint}");
+                Debug.WriteLine($"Request token: {Session.CurrentUserToken.Substring(0, Math.Min(10, Session.CurrentUserToken.Length))}...");
                 var response = await _httpClient.SendAsync(request);
+                
+                var statusCode = response.StatusCode;
+                Debug.WriteLine($"Response status code: {statusCode}");
+                
+                var responseContent = await response.Content.ReadAsStringAsync();
+                Debug.WriteLine($"Response content: {responseContent}");
                 
                 if (response.IsSuccessStatusCode)
                 {
-                    var responseContent = await response.Content.ReadAsStringAsync();
                     var responseObject = JObject.Parse(responseContent);
                     var signedUrl = responseObject["signedUrl"].ToString();
                     
@@ -81,15 +100,32 @@ namespace DataGridNamespace.Services
                 }
                 else
                 {
-                    Debug.WriteLine($"Error getting signed read URL: {response.StatusCode}");
-                    MessageBox.Show($"Error getting file access: {response.StatusCode}", 
-                        "File Access Error", MessageBoxButton.OK, MessageBoxImage.Error);
+                    // Handle specific error cases
+                    if (statusCode == System.Net.HttpStatusCode.Unauthorized)
+                    {
+                        Debug.WriteLine("Authentication error: Unauthorized. Invalid or expired token?");
+                        MessageBox.Show("Your session might have expired or is invalid. Please try logging out and logging back in.", 
+                            "Authentication Error", MessageBoxButton.OK, MessageBoxImage.Warning);
+                    }
+                    else if (statusCode == System.Net.HttpStatusCode.NotFound)
+                    {
+                        Debug.WriteLine("File not found in storage");
+                        MessageBox.Show("The requested file was not found in storage.", 
+                            "File Not Found", MessageBoxButton.OK, MessageBoxImage.Error);
+                    }
+                    else
+                    {
+                        Debug.WriteLine($"Error getting signed read URL: {statusCode}");
+                        MessageBox.Show($"Error getting file access: {statusCode} - {responseContent}", 
+                            "File Access Error", MessageBoxButton.OK, MessageBoxImage.Error);
+                    }
                     return null;
                 }
             }
             catch (Exception ex)
             {
                 Debug.WriteLine($"Error getting signed URL: {ex.Message}");
+                Debug.WriteLine($"Stack trace: {ex.StackTrace}");
                 MessageBox.Show($"Error getting file access: {ex.Message}", 
                     "File Access Error", MessageBoxButton.OK, MessageBoxImage.Error);
                 return null;
@@ -100,6 +136,7 @@ namespace DataGridNamespace.Services
         /// Gets a signed URL for uploading an object to Cloud Storage via Cloud Function
         /// </summary>
         /// <param name="objectName">The name to give the object in Cloud Storage</param>
+        /// <param name="contentType">The content type of the object</param>
         /// <returns>A signed URL that can be used to upload the object</returns>
         public async Task<string> GetSignedUploadUrl(string objectName, string contentType = "application/octet-stream")
         {
@@ -111,16 +148,23 @@ namespace DataGridNamespace.Services
                     return null;
                 }
 
+                // Check if we have a valid token
+                if (string.IsNullOrEmpty(Session.CurrentUserToken))
+                {
+                    Debug.WriteLine("GetSignedUploadUrl: User token is null or empty");
+                    MessageBox.Show("You must be logged in to upload files.", 
+                        "Authentication Error", MessageBoxButton.OK, MessageBoxImage.Error);
+                    return null;
+                }
+
                 Debug.WriteLine($"Getting signed upload URL for object: {objectName}");
+                Debug.WriteLine($"Using token: {Session.CurrentUserToken.Substring(0, Math.Min(10, Session.CurrentUserToken.Length))}...");
 
                 // Set up the request
                 var request = new HttpRequestMessage(HttpMethod.Post, AppConfig.GenerateUploadUrlEndpoint);
                 
-                // Add Firebase token if available
-                if (!string.IsNullOrEmpty(Session.CurrentUserToken))
-                {
-                    request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", Session.CurrentUserToken);
-                }
+                // Add Firebase token
+                request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", Session.CurrentUserToken);
                 
                 // Create request body
                 var requestBody = new
@@ -134,11 +178,18 @@ namespace DataGridNamespace.Services
                 request.Content = new StringContent(jsonContent, Encoding.UTF8, "application/json");
                 
                 // Send request
+                Debug.WriteLine($"Sending request to: {AppConfig.GenerateUploadUrlEndpoint}");
+                Debug.WriteLine($"Request token: {Session.CurrentUserToken.Substring(0, Math.Min(10, Session.CurrentUserToken.Length))}...");
                 var response = await _httpClient.SendAsync(request);
+                
+                var statusCode = response.StatusCode;
+                Debug.WriteLine($"Response status code: {statusCode}");
+                
+                var responseContent = await response.Content.ReadAsStringAsync();
+                Debug.WriteLine($"Response content: {responseContent}");
                 
                 if (response.IsSuccessStatusCode)
                 {
-                    var responseContent = await response.Content.ReadAsStringAsync();
                     var responseObject = JObject.Parse(responseContent);
                     var signedUrl = responseObject["signedUrl"].ToString();
                     
@@ -147,15 +198,26 @@ namespace DataGridNamespace.Services
                 }
                 else
                 {
-                    Debug.WriteLine($"Error getting signed upload URL: {response.StatusCode}");
-                    MessageBox.Show($"Error getting upload access: {response.StatusCode}", 
-                        "Upload Error", MessageBoxButton.OK, MessageBoxImage.Error);
+                    // Handle specific error cases
+                    if (statusCode == System.Net.HttpStatusCode.Unauthorized)
+                    {
+                        Debug.WriteLine("Authentication error: Unauthorized. Invalid or expired token?");
+                        MessageBox.Show("Your session might have expired or is invalid. Please try logging out and logging back in.", 
+                            "Authentication Error", MessageBoxButton.OK, MessageBoxImage.Warning);
+                    }
+                    else
+                    {
+                        Debug.WriteLine($"Error getting signed upload URL: {statusCode}");
+                        MessageBox.Show($"Error getting upload access: {statusCode} - {responseContent}", 
+                            "Upload Error", MessageBoxButton.OK, MessageBoxImage.Error);
+                    }
                     return null;
                 }
             }
             catch (Exception ex)
             {
                 Debug.WriteLine($"Error getting signed upload URL: {ex.Message}");
+                Debug.WriteLine($"Stack trace: {ex.StackTrace}");
                 MessageBox.Show($"Error getting upload access: {ex.Message}", 
                     "Upload Error", MessageBoxButton.OK, MessageBoxImage.Error);
                 return null;
@@ -175,6 +237,15 @@ namespace DataGridNamespace.Services
                 if (string.IsNullOrEmpty(localFilePath) || string.IsNullOrEmpty(objectName))
                 {
                     Debug.WriteLine("UploadFileViaSignedUrl: localFilePath or objectName is null or empty");
+                    return null;
+                }
+
+                // Check if the file exists
+                if (!File.Exists(localFilePath))
+                {
+                    Debug.WriteLine($"File does not exist at path: {localFilePath}");
+                    MessageBox.Show("The selected file does not exist.", 
+                        "File Error", MessageBoxButton.OK, MessageBoxImage.Error);
                     return null;
                 }
 
@@ -198,7 +269,11 @@ namespace DataGridNamespace.Services
                     content.Headers.ContentType = new MediaTypeHeaderValue(contentType);
                     
                     // Use PutAsync to the upload URL
+                    Debug.WriteLine($"Uploading file to signed URL: {signedUrl}");
                     var response = await _httpClient.PutAsync(signedUrl, content);
+                    
+                    var statusCode = response.StatusCode;
+                    Debug.WriteLine($"Upload response status code: {statusCode}");
                     
                     if (response.IsSuccessStatusCode)
                     {
@@ -207,8 +282,10 @@ namespace DataGridNamespace.Services
                     }
                     else
                     {
-                        Debug.WriteLine($"Upload failed with status code: {response.StatusCode}");
-                        MessageBox.Show($"Upload failed: {response.StatusCode}", 
+                        var responseContent = await response.Content.ReadAsStringAsync();
+                        Debug.WriteLine($"Upload failed with status code: {statusCode}");
+                        Debug.WriteLine($"Response content: {responseContent}");
+                        MessageBox.Show($"Upload failed: {statusCode} - {responseContent}", 
                             "Upload Error", MessageBoxButton.OK, MessageBoxImage.Error);
                         return null;
                     }
@@ -217,6 +294,7 @@ namespace DataGridNamespace.Services
             catch (Exception ex)
             {
                 Debug.WriteLine($"Error uploading to signed URL: {ex.Message}");
+                Debug.WriteLine($"Stack trace: {ex.StackTrace}");
                 MessageBox.Show($"Upload error: {ex.Message}", 
                     "Upload Error", MessageBoxButton.OK, MessageBoxImage.Error);
                 return null;
@@ -251,44 +329,41 @@ namespace DataGridNamespace.Services
     {
         private static readonly Dictionary<string, string> _mappings = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
         {
-            {".jpg", "image/jpeg"},
-            {".jpeg", "image/jpeg"},
-            {".png", "image/png"},
-            {".gif", "image/gif"},
-            {".bmp", "image/bmp"},
-            {".pdf", "application/pdf"},
-            {".doc", "application/msword"},
-            {".docx", "application/vnd.openxmlformats-officedocument.wordprocessingml.document"},
-            {".xls", "application/vnd.ms-excel"},
-            {".xlsx", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"},
-            {".ppt", "application/vnd.ms-powerpoint"},
-            {".pptx", "application/vnd.openxmlformats-officedocument.presentationml.presentation"},
-            {".txt", "text/plain"},
-            {".zip", "application/zip"},
-            {".rar", "application/x-rar-compressed"},
-            {".exe", "application/octet-stream"},
-            {".mp3", "audio/mpeg"},
-            {".mp4", "video/mp4"},
-            {".avi", "video/x-msvideo"},
-            {".wmv", "video/x-ms-wmv"},
-            {".html", "text/html"},
-            {".htm", "text/html"},
-            {".css", "text/css"},
-            {".js", "application/javascript"}
+            { ".pdf", "application/pdf" },
+            { ".jpg", "image/jpeg" },
+            { ".jpeg", "image/jpeg" },
+            { ".png", "image/png" },
+            { ".gif", "image/gif" },
+            { ".txt", "text/plain" },
+            { ".doc", "application/msword" },
+            { ".docx", "application/vnd.openxmlformats-officedocument.wordprocessingml.document" },
+            { ".xls", "application/vnd.ms-excel" },
+            { ".xlsx", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" },
+            { ".ppt", "application/vnd.ms-powerpoint" },
+            { ".pptx", "application/vnd.openxmlformats-officedocument.presentationml.presentation" },
+            { ".zip", "application/zip" },
+            { ".rar", "application/x-rar-compressed" },
+            { ".mp3", "audio/mpeg" },
+            { ".mp4", "video/mp4" },
+            { ".avi", "video/x-msvideo" },
+            { ".bmp", "image/bmp" },
+            { ".csv", "text/csv" },
+            { ".rtf", "application/rtf" }
         };
-        
+
         public static string GetMimeType(string extension)
         {
             if (string.IsNullOrEmpty(extension))
+            {
                 return "application/octet-stream";
-                
+            }
+
             if (!extension.StartsWith("."))
+            {
                 extension = "." + extension;
-                
-            if (_mappings.TryGetValue(extension, out string mime))
-                return mime;
-                
-            return "application/octet-stream"; // Default
+            }
+
+            return _mappings.TryGetValue(extension, out var mime) ? mime : "application/octet-stream";
         }
     }
 }

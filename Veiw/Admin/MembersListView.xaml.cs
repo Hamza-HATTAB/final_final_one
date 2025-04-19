@@ -7,6 +7,7 @@ using System.Windows.Data;
 using System.Windows.Input;
 using System.Windows.Media;
 using MySql.Data.MySqlClient;
+using System.Diagnostics;
 using UserModels;
 using DataGridNamespace;
 
@@ -16,11 +17,19 @@ namespace DataGridNamespace.Admin
     {
         private List<User> allMembers;
         private CollectionViewSource membersViewSource;
+        private bool isDataLoaded = false;
 
         public MembersListView()
         {
             InitializeComponent();
-            LoadMembers();
+            this.Loaded += (s, e) => 
+            {
+                if (!isDataLoaded)
+                {
+                    LoadMembers();
+                    isDataLoaded = true;
+                }
+            };
         }
 
         private void LoadMembers()
@@ -29,6 +38,8 @@ namespace DataGridNamespace.Admin
             {
                 allMembers = new List<User>();
                 string connectionString = AppConfig.CloudSqlConnectionString;
+                Debug.WriteLine("Loading members using connection string from AppConfig");
+                
                 string query = "SELECT id, nom, email, role FROM users ORDER BY id";
 
                 using (MySqlConnection conn = new MySqlConnection(connectionString))
@@ -40,22 +51,39 @@ namespace DataGridNamespace.Admin
                         {
                             while (reader.Read())
                             {
-                                int userId = reader.GetInt32("id");
-                                string userName = reader.GetString("nom");
-                                string email = reader.GetString("email");
-                                string roleStr = reader.GetString("role");
-
-                                // Convert string role to enum
-                                RoleUtilisateur role = ConvertStringToRole(roleStr);
-
-                                var user = new User
+                                try
                                 {
-                                    Id = userId,
-                                    Nom = userName,
-                                    Email = email,
-                                    Role = role
-                                };
-                                allMembers.Add(user);
+                                    int userId = reader.GetInt32("id");
+                                    
+                                    string userName = reader.IsDBNull(reader.GetOrdinal("nom")) 
+                                        ? "Unknown" 
+                                        : reader.GetString("nom");
+                                    
+                                    string email = reader.IsDBNull(reader.GetOrdinal("email")) 
+                                        ? "" 
+                                        : reader.GetString("email");
+                                    
+                                    string roleStr = reader.IsDBNull(reader.GetOrdinal("role")) 
+                                        ? "simpleuser" 
+                                        : reader.GetString("role");
+
+                                    // Convert string role to enum
+                                    RoleUtilisateur role = ConvertStringToRole(roleStr);
+
+                                    var user = new User
+                                    {
+                                        Id = userId,
+                                        Nom = userName,
+                                        Email = email,
+                                        Role = role
+                                    };
+                                    allMembers.Add(user);
+                                }
+                                catch (Exception ex)
+                                {
+                                    Debug.WriteLine($"Error reading user record: {ex.Message}");
+                                    // Continue with next record
+                                }
                             }
                         }
                     }
@@ -65,10 +93,12 @@ namespace DataGridNamespace.Admin
                 membersViewSource.Filter += MembersViewSource_Filter;
                 MembersDataGrid.ItemsSource = membersViewSource.View;
 
+                Debug.WriteLine($"Successfully loaded {allMembers.Count} members");
                 //Counter.Text = $"Total: {allMembers.Count} members";
             }
             catch (Exception ex)
             {
+                Debug.WriteLine($"Error loading members: {ex.Message}");
                 MessageBox.Show($"Error loading members: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
             }
         }
@@ -83,6 +113,12 @@ namespace DataGridNamespace.Admin
 
         private void MembersViewSource_Filter(object sender, FilterEventArgs e)
         {
+            if (SearchTextBox == null)
+            {
+                e.Accepted = true;
+                return;
+            }
+            
             if (e.Item is User user && !string.IsNullOrEmpty(SearchTextBox.Text))
             {
                 string searchText = SearchTextBox.Text.ToLower();
@@ -118,11 +154,19 @@ namespace DataGridNamespace.Admin
         {
             if (sender is Button button && button.Tag is User user)
             {
-                EditMember editWindow = new EditMember(user);
-                if (editWindow.ShowDialog() == true)
+                try
                 {
-                    // Refresh the list after editing
-                    LoadMembers();
+                    EditMember editWindow = new EditMember(user);
+                    if (editWindow.ShowDialog() == true)
+                    {
+                        // Refresh the list after editing
+                        LoadMembers();
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Debug.WriteLine($"Error opening edit window: {ex.Message}");
+                    MessageBox.Show($"Error editing user: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
                 }
             }
         }
@@ -175,6 +219,7 @@ namespace DataGridNamespace.Admin
                     }
                     catch (Exception ex)
                     {
+                        Debug.WriteLine($"Error deleting user: {ex.Message}");
                         MessageBox.Show($"Error deleting user: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
                     }
                 }
